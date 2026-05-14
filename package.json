@@ -1,0 +1,23 @@
+{
+  "name": "tezorum-backend",
+  "version": "1.0.0",
+  "description": "Backend para Importaciones JC",
+  "main": "server.js", 
+  "scripts": {
+    "start": "node server.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "Hector Mendoza",
+  "license": "ISC",
+  "dependencies": {
+    "@supabase/supabase-js": "^2.104.1",
+    "agentkeepalive": "^4.6.0",
+    "axios": "^1.15.2",
+    "cors": "^2.8.6",
+    "dnscache": "^1.0.2",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "native-dns": "^0.7.0"
+  }
+}
