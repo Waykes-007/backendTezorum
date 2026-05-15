@@ -10,6 +10,7 @@ const cartController = require('../controllers/cartController');
 const couponController = require('../controllers/couponController');
 const resenaController = require('../controllers/resenaController');
 const favoritosController = require('../controllers/favoritosController');
+const pagoRoutes = require('./pagoRoutes');
 
 
 
@@ -19,6 +20,7 @@ router.post('/auth/completar-registro', authController.completarRegistro);
 router.post('/pedidos/crear', orderController.crearPedido);
 router.post('/wallet/agregar', walletController.reclamarPremioDiario);
 
+router.use('/pagos', pagoRoutes);
 
 
 // Ajustamos esta línea para que coincida con tu ApiService.dart

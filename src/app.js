@@ -14,6 +14,7 @@ app.use(express.json()); // Permite recibir JSON en las peticiones
 
 // Rutas
 app.use('/api', apiRoutes);
+
 app.use('/webhooks', webhookRoutes);
 app.use('/api/ubicacion', locationRoutes);
 app.use('/api/ofertas-flash', flashRoutes);
