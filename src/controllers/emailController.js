@@ -238,7 +238,7 @@ const enviarCorreoVendedor = async ({ tienda, pedido, items, datosEntrega }) => 
 
     await resend.emails.send({
       from:    'Tezórum <onboarding@resend.dev>',
-      to:      tienda.email,
+      to: 'josueacuna380@gmail.com',
       subject: `🎉 ¡Vendiste! Nuevo pedido #${pedido.numero_pedido} - Tezórum`,
       html,
     });
