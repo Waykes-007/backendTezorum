@@ -19,6 +19,8 @@
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
     "mercadopago": "^2.12.1",
-    "native-dns": "^0.7.0"
+    "native-dns": "^0.7.0",
+    "qrcode": "^1.5.4",
+    "resend": "^6.12.3"
   }
 }

@@ -1,4 +1,5 @@
 const supabase = require('../config/supabase');
+const { enviarTicketCompra } = require('./emailController');
 
 const orderController = {
   async crearPedido(req, res) {
@@ -190,6 +191,37 @@ const orderController = {
       // ── 10. Limpiar carrito ────────────────────────────────────────────────
       await supabase.from('carrito').delete().eq('usuario_id', usuario_id);
 
+      // ── 11. Obtener correo del usuario ─────────────────────────────────────
+      const { data: usuarioData } = await supabase
+        .from('usuarios')
+        .select('correo_electronico')
+        .eq('id', usuario_id)
+        .single();
+
+      // ── 12. Enviar ticket de compra por correo ─────────────────────────────
+      await enviarTicketCompra({
+        pedido: {
+          id:                pedidoInsertado.id,
+          numero:            pedidoInsertado.id.slice(0, 8).toUpperCase(),
+          monto_total_pagar: pedidoInsertado.monto_total_pagar,
+          costo_envio:       pedidoInsertado.costo_envio,
+          direccion_envio:   datos_entrega.direccion,
+        },
+        cliente: {
+          nombre:   datos_entrega.nombre,
+          correo:   usuarioData?.correo_electronico,
+          whatsapp: datos_entrega.whatsapp,
+        },
+        items: detallesData.map(item => {
+          const prod = itemsCarrito.find(i => i.producto_id === item.producto_id);
+          return {
+            nombre:   prod?.productos?.nombre_producto ?? 'Producto',
+            cantidad: item.cantidad,
+            precio:   item.precio_unitario_historico,
+          };
+        }),
+      });
+
       return res.status(201).json({
         message: 'Pedido registrado con éxito ✅',
         pedidoId: pedidoInsertado.id,
@@ -200,6 +232,7 @@ const orderController = {
       return res.status(500).json({ error: e.message });
     }
   },
+  
 
   async obtenerPedidosPorUsuario(req, res) {
     const { userId } = req.params;
