@@ -153,7 +153,7 @@ const enviarTicketCompra = async ({ pedido, cliente, items, pago }) => {
 
     await resend.emails.send({
       from:    'Tezórum <onboarding@resend.dev>',
-      to:      cliente.correo,
+      to:      'josueacuna380@gmail.com',
       subject: `✅ ¡Tu pedido #${pedido.numero} fue confirmado! - Tezórum`,
       html,
     });
