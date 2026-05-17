@@ -12,7 +12,7 @@ const resenaController = require('../controllers/resenaController');
 const favoritosController = require('../controllers/favoritosController');
 const pagoRoutes = require('./pagoRoutes');
 const izipayRoutes = require('./izipayRoutes');
-const { tokensTemporales, datosTemporales } = require('../controllers/izipayController');
+const { tokensTemporales, datosTemporales } = require('../utils/storage');
 
 router.post('/auth/register', authController.register);
 router.post('/auth/login', authController.login);

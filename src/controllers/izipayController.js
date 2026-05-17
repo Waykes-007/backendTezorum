@@ -6,8 +6,7 @@ const IZIPAY_USERNAME = process.env.IZIPAY_USERNAME;
 const IZIPAY_PASSWORD = process.env.IZIPAY_PASSWORD_TEST;
 const IZIPAY_BASE_URL = 'https://api.micuentaweb.pe';
 
-const tokensTemporales = new Map();
-const datosTemporales  = new Map();
+const { tokensTemporales, datosTemporales } = require('../utils/storage');
 
 // ── Generar token de pago ────────────────────────────────────────────────────
 const crearFormToken = async (req, res) => {
