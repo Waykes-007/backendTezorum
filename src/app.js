@@ -11,6 +11,7 @@ const app = express();
 // Middlewares
 app.use(cors()); // Permite conexiones desde el dispositivo móvil
 app.use(express.json()); // Permite recibir JSON en las peticiones
+app.use(express.urlencoded({ extended: true })); // ← agrega esto
 
 // Rutas
 app.use('/api', apiRoutes);
