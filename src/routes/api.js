@@ -103,7 +103,7 @@ router.get('/izipay/pagar/:tokenId', (req, res) => {
   `);
 });
 
-router.get('/izipay/exito', (req, res) => {
+router.post('/izipay/exito', (req, res) => {
   res.send(`
     <html>
     <body style="text-align:center;font-family:Arial;padding:40px;">
@@ -114,7 +114,7 @@ router.get('/izipay/exito', (req, res) => {
   `);
 });
 
-router.get('/izipay/error', (req, res) => {
+router.post('/izipay/error', (req, res) => {
   res.send(`
     <html>
     <body style="text-align:center;font-family:Arial;padding:40px;">
