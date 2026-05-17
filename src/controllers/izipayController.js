@@ -72,6 +72,8 @@ const crearFormToken = async (req, res) => {
 
 // ── Webhook / IPN ────────────────────────────────────────────────────────────
 const webhook = async (req, res) => {
+  console.log('🔔 Webhook Izipay recibido:', JSON.stringify(req.body));
+  console.log('Headers:', JSON.stringify(req.headers));
   try {
     const krAnswer = req.body['kr-answer'];
     const krHash   = req.body['kr-hash'];
