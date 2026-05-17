@@ -15,7 +15,7 @@ const crearFormToken = async (req, res) => {
     const response = await axios.post(
       `${IZIPAY_BASE_URL}/api-payment/V4/Charge/CreatePayment`,
       {
-        amount:   Math.round(total * 100), // en céntimos
+        amount:   Math.round(total * 100),
         currency: 'PEN',
         orderId:  orderId,
         customer: {
@@ -31,6 +31,8 @@ const crearFormToken = async (req, res) => {
       }
     );
 
+    console.log('Izipay response:', JSON.stringify(response.data)); // ← agrega esto
+
     if (response.data.status === 'SUCCESS') {
       res.json({ formToken: response.data.answer.formToken });
     } else {
@@ -42,7 +44,6 @@ const crearFormToken = async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 };
-
 // ── Webhook / IPN ────────────────────────────────────────────────────────────
 const webhook = async (req, res) => {
   try {
