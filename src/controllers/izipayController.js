@@ -1,12 +1,13 @@
 const axios  = require('axios');
 const crypto = require('crypto');
+const orderController = require('./orderController');
 
 const IZIPAY_USERNAME = process.env.IZIPAY_USERNAME;
 const IZIPAY_PASSWORD = process.env.IZIPAY_PASSWORD_TEST;
 const IZIPAY_BASE_URL = 'https://api.micuentaweb.pe';
 
-// Mapa temporal para guardar tokens
 const tokensTemporales = new Map();
+const datosTemporales  = new Map();
 
 // ── Generar token de pago ────────────────────────────────────────────────────
 const crearFormToken = async (req, res) => {
@@ -38,13 +39,25 @@ const crearFormToken = async (req, res) => {
 
     if (response.data.status === 'SUCCESS') {
       const formToken = response.data.answer.formToken;
+      const tokenId   = Date.now().toString(36);
 
-      // Guardar con ID corto
-      const tokenId = Date.now().toString(36);
+      // Guardar formToken
       tokensTemporales.set(tokenId, formToken);
 
-      // Limpiar después de 10 minutos
-      setTimeout(() => tokensTemporales.delete(tokenId), 10 * 60 * 1000);
+      // Guardar datos del pedido para cuando llegue el webhook
+      datosTemporales.set(tokenId, {
+        usuario_id:   cliente.userId,
+        datosEntrega: cliente.datosEntrega ?? {},
+        monto:        total,
+        codigoCupon:  cliente.codigoCupon ?? null,
+        orderId:      orderId,
+      });
+
+      // Limpiar después de 15 minutos
+      setTimeout(() => {
+        tokensTemporales.delete(tokenId);
+        datosTemporales.delete(tokenId);
+      }, 15 * 60 * 1000);
 
       res.json({ formToken, tokenId });
     } else {
@@ -63,6 +76,7 @@ const webhook = async (req, res) => {
     const krAnswer = req.body['kr-answer'];
     const krHash   = req.body['kr-hash'];
 
+    // ── Verificar firma HMAC ──
     const hmacKey  = process.env.IZIPAY_HMAC_TEST;
     const expected = crypto
       .createHmac('sha256', hmacKey)
@@ -79,6 +93,54 @@ const webhook = async (req, res) => {
 
     if (pago?.detailedStatus === 'AUTHORISED') {
       console.log('✅ Pago aprobado:', pago.uuid);
+
+      // Buscar datos del pedido por orderId
+      const orderId = answer.orderDetails?.orderId;
+      let datosPedido = null;
+
+      for (const [tokenId, datos] of datosTemporales.entries()) {
+        if (datos.orderId === orderId) {
+          datosPedido = datos;
+          datosTemporales.delete(tokenId);
+          break;
+        }
+      }
+
+      if (datosPedido) {
+        const fakeReq = {
+          body: {
+            usuario_id:        datosPedido.usuario_id,
+            monto_total_pagar: datosPedido.monto,
+            monto_subtotal:    datosPedido.monto,
+            costo_envio:       0,
+            datos_entrega:     datosPedido.datosEntrega,
+            tipo_envio:        'Normal',
+            cupon_usado:       datosPedido.codigoCupon,
+            pago: {
+              estado:           'aprobado',
+              mp_payment_id:    pago.uuid,
+              mp_status:        'approved',
+              mp_status_detail: pago.detailedStatus,
+              metodo_pago:      pago.paymentMethodType ?? 'card',
+              tipo_pago:        pago.paymentMethodType ?? 'credit_card',
+              banco:            pago.cardDetails?.issuerName ?? null,
+              ultimos_4_digitos: pago.cardDetails?.pan?.slice(-4) ?? null,
+              nombre_titular:   pago.cardDetails?.cardHolderName ?? null,
+            },
+          },
+        };
+
+        const fakeRes = {
+          status: (code) => ({
+            json: (data) => console.log(`Pedido creado desde Izipay:`, data)
+          }),
+        };
+
+        await orderController.crearPedido(fakeReq, fakeRes);
+        console.log('✅ Pedido creado desde webhook Izipay');
+      } else {
+        console.warn('⚠️ No se encontraron datos del pedido para orderId:', orderId);
+      }
     }
 
     res.json({ status: 'OK' });

@@ -71,6 +71,7 @@ router.get('/izipay/pagar/:tokenId', (req, res) => {
   <script type="text/javascript"
     src="https://static.micuentaweb.pe/static/js/krypton-client/V4.0/stable/kr-payment-form.min.js"
     kr-public-key="${publicKey}"
+    kr-language="es-PE"
     kr-post-url-success="https://backendtezorum.onrender.com/api/izipay/exito"
     kr-post-url-refused="https://backendtezorum.onrender.com/api/izipay/error">
   </script>
@@ -80,23 +81,81 @@ router.get('/izipay/pagar/:tokenId', (req, res) => {
 
   <style>
     * { box-sizing: border-box; }
-    body { margin: 0; padding: 16px; font-family: Arial, sans-serif; background: #f5f5f5; }
-    .header { text-align: center; margin-bottom: 20px; padding: 20px; background: #6B21A8; border-radius: 16px; }
-    .header h2 { color: white; font-size: 20px; margin: 0; }
-    .header p { color: rgba(255,255,255,0.8); font-size: 13px; margin: 4px 0 0; }
+    body { 
+      margin: 0; 
+      padding: 0;
+      font-family: Arial, sans-serif; 
+      background: linear-gradient(135deg, #6B21A8, #9333EA);
+      min-height: 100vh;
+    }
+    .header { 
+      text-align: center; 
+      padding: 30px 20px 20px;
+    }
+    .header h2 { 
+      color: white; 
+      font-size: 22px; 
+      margin: 0;
+      font-weight: 900;
+    }
+    .header p { 
+      color: rgba(255,255,255,0.8); 
+      font-size: 13px; 
+      margin: 4px 0 0; 
+    }
+    .container {
+      background: white;
+      border-radius: 24px 24px 0 0;
+      padding: 24px;
+      min-height: calc(100vh - 120px);
+    }
+    .secure-badge {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      margin-bottom: 20px;
+      color: #666;
+      font-size: 13px;
+    }
+    .kr-payment-button { 
+      background: linear-gradient(135deg, #6B21A8, #9333EA) !important;
+      border-radius: 14px !important;
+      width: 100% !important;
+      height: 52px !important;
+      font-size: 16px !important;
+      font-weight: bold !important;
+      margin-top: 16px !important;
+      border: none !important;
+      box-shadow: 0 4px 15px rgba(107,33,168,0.4) !important;
+    }
+    .kr-field-wrapper {
+      border-radius: 12px !important;
+      border: 1.5px solid #e5e7eb !important;
+      margin-bottom: 12px !important;
+    }
+    .kr-field-wrapper:focus-within {
+      border-color: #6B21A8 !important;
+    }
   </style>
 </head>
 <body>
   <div class="header">
     <h2>🔒 Pago seguro</h2>
-    <p>Tezórum</p>
+    <p>Tezórum • Powered by Izipay</p>
   </div>
 
-  <div class="kr-embedded" kr-form-token="${formToken}">
-    <div class="kr-pan"></div>
-    <div class="kr-expiry"></div>
-    <div class="kr-security-code"></div>
-    <button class="kr-payment-button"></button>
+  <div class="container">
+    <div class="secure-badge">
+      🛡️ Tu información está protegida con encriptación SSL
+    </div>
+
+    <div class="kr-embedded" kr-form-token="${formToken}">
+      <div class="kr-pan"></div>
+      <div class="kr-expiry"></div>
+      <div class="kr-security-code"></div>
+      <button class="kr-payment-button"></button>
+    </div>
   </div>
 </body>
 </html>
