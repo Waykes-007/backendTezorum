@@ -5,6 +5,9 @@ const IZIPAY_USERNAME = process.env.IZIPAY_USERNAME;
 const IZIPAY_PASSWORD = process.env.IZIPAY_PASSWORD_TEST;
 const IZIPAY_BASE_URL = 'https://api.micuentaweb.pe';
 
+// Mapa temporal para guardar tokens
+const tokensTemporales = new Map();
+
 // ── Generar token de pago ────────────────────────────────────────────────────
 const crearFormToken = async (req, res) => {
   try {
@@ -31,10 +34,19 @@ const crearFormToken = async (req, res) => {
       }
     );
 
-    console.log('Izipay response:', JSON.stringify(response.data)); // ← agrega esto
+    console.log('Izipay response status:', response.data.status);
 
     if (response.data.status === 'SUCCESS') {
-      res.json({ formToken: response.data.answer.formToken });
+      const formToken = response.data.answer.formToken;
+
+      // Guardar con ID corto
+      const tokenId = Date.now().toString(36);
+      tokensTemporales.set(tokenId, formToken);
+
+      // Limpiar después de 10 minutos
+      setTimeout(() => tokensTemporales.delete(tokenId), 10 * 60 * 1000);
+
+      res.json({ formToken, tokenId });
     } else {
       res.status(400).json({ error: response.data.answer });
     }
@@ -44,13 +56,13 @@ const crearFormToken = async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 };
+
 // ── Webhook / IPN ────────────────────────────────────────────────────────────
 const webhook = async (req, res) => {
   try {
     const krAnswer = req.body['kr-answer'];
     const krHash   = req.body['kr-hash'];
 
-    // Verificar firma HMAC
     const hmacKey  = process.env.IZIPAY_HMAC_TEST;
     const expected = crypto
       .createHmac('sha256', hmacKey)
@@ -67,7 +79,6 @@ const webhook = async (req, res) => {
 
     if (pago?.detailedStatus === 'AUTHORISED') {
       console.log('✅ Pago aprobado:', pago.uuid);
-      // Aquí llamarás a crearPedido
     }
 
     res.json({ status: 'OK' });
@@ -77,4 +88,4 @@ const webhook = async (req, res) => {
   }
 };
 
-module.exports = { crearFormToken, webhook };
+module.exports = { crearFormToken, webhook, tokensTemporales };

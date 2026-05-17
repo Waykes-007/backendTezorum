@@ -5,13 +5,13 @@ const authController = require('../controllers/authController');
 const walletController = require('../controllers/walletController');
 const shopController = require('../controllers/shopController');
 const orderController = require('../controllers/orderController');
-const walletService = require('../services/walletService');
 const cartController = require('../controllers/cartController');
 const couponController = require('../controllers/couponController');
 const resenaController = require('../controllers/resenaController');
 const favoritosController = require('../controllers/favoritosController');
 const pagoRoutes = require('./pagoRoutes');
 const izipayRoutes = require('./izipayRoutes');
+const { tokensTemporales } = require('../controllers/izipayController');
 
 router.post('/auth/register', authController.register);
 router.post('/auth/login', authController.login);
@@ -22,8 +22,7 @@ router.post('/wallet/agregar', walletController.reclamarPremioDiario);
 router.use('/pagos', pagoRoutes);
 router.use('/izipay', izipayRoutes);
 
-router.post('/auth/validar-celular', authController.validarCelular); 
-
+router.post('/auth/validar-celular', authController.validarCelular);
 router.post('/carrito/agregar', cartController.agregarAlCarrito);
 router.post('/cupones/validar', couponController.validarCupon);
 router.post('/resenas', resenaController.crearResena);
@@ -38,17 +37,29 @@ router.post('/favoritos', favoritosController.agregar);
 router.delete('/favoritos/:userId/:productoId', favoritosController.eliminar);
 router.delete('/carrito/:userId/:productoId', cartController.eliminarDelCarrito);
 router.delete('/resenas/:productoId/:userId', resenaController.eliminarResena);
-
 router.get('/carrito/:userId', cartController.obtenerCarrito);
 router.get('/pedidos/usuario/:userId', orderController.obtenerPedidosPorUsuario);
 router.get('/wallet/estado/:userId', walletController.obtenerEstadoBilletera);
 router.get('/productos', shopController.obtenerProductos);
 
 // ── Izipay — página de pago hosted ──────────────────────────────────────────
-router.get('/izipay/pagar/:formToken', (req, res) => {
-  const { formToken } = req.params;
+router.get('/izipay/pagar/:tokenId', (req, res) => {
+  const { tokenId } = req.params;
+  const formToken = tokensTemporales.get(tokenId);
+
+  if (!formToken) {
+    return res.send(`
+      <html>
+      <body style="text-align:center;font-family:Arial;padding:40px;">
+        <h1 style="color:red;">⏱️ Token expirado</h1>
+        <p>Vuelve a la app e intenta de nuevo.</p>
+      </body>
+      </html>
+    `);
+  }
+
   const publicKey = process.env.IZIPAY_PUBLIC_KEY_TEST;
-  
+
   res.send(`
 <!DOCTYPE html>
 <html>
@@ -112,38 +123,17 @@ router.get('/izipay/error', (req, res) => {
 
 // ── Check DB ─────────────────────────────────────────────────────────────────
 router.get('/check-db', async (req, res) => {
-    console.log("🔍 Intentando conectar a:", process.env.SUPABASE_URL); 
-    try {
-        const { data, error, status } = await supabase
-            .from('categorias')
-            .select('*')
-            .limit(1);
-        if (error) {
-            console.error("❌ Error de Supabase detallado:", error);
-            const httpStatus = (status > 99 && status < 600) ? status : 500;
-            return res.status(httpStatus).json({ 
-                status: 'Error en Supabase', 
-                message: error.message,
-                details: error.details 
-            });
-        }
-        res.json({ 
-            status: 'Conectado a Supabase ✅', 
-            mensaje: 'La tabla categorías está accesible',
-            data: data 
-        });
-    } catch (err) {
-        console.error("🚨 Error capturado en el catch:", err);
-        let mensajePersonalizado = err.message;
-        if (err.message.includes('ENOTFOUND')) {
-            mensajePersonalizado = "No se pudo encontrar el servidor de Supabase. Revisa tu conexión a internet o tus DNS.";
-        }
-        res.status(500).json({ 
-            status: 'Error de conexión ❌', 
-            error: mensajePersonalizado,
-            code: err.code || 'UNKNOWN_ERROR'
-        });
+  try {
+    const { data, error, status } = await supabase
+      .from('categorias').select('*').limit(1);
+    if (error) {
+      const httpStatus = (status > 99 && status < 600) ? status : 500;
+      return res.status(httpStatus).json({ status: 'Error en Supabase', message: error.message });
     }
+    res.json({ status: 'Conectado a Supabase ✅', data });
+  } catch (err) {
+    res.status(500).json({ status: 'Error de conexión ❌', error: err.message });
+  }
 });
 
 module.exports = router;
