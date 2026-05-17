@@ -112,18 +112,17 @@ router.get('/izipay/pagar/:tokenId', (req, res) => {
 // ── Izipay — éxito del pago ──────────────────────────────────────────────────
 router.post('/izipay/exito', async (req, res) => {
   try {
-    console.log('✅ Pago exitoso recibido:', JSON.stringify(req.body));
+    const krAnswer = req.body['kr-answer'];
+    const krHash   = req.body['kr-hash'];
+    const hmacKey  = process.env.IZIPAY_HMAC_TEST;
+    const expected = crypto.createHmac('sha256', hmacKey).update(krAnswer).digest('hex');
+
+    // Logs DESPUÉS de declarar las variables
+    console.log('✅ Pago exitoso recibido body:', JSON.stringify(req.body));
     console.log('krAnswer:', krAnswer);
     console.log('krHash recibido:', krHash);
     console.log('krHash calculado:', expected);
     console.log('hmacKey:', hmacKey?.substring(0, 10) + '...');
-
-    const krAnswer = req.body['kr-answer'];
-    const krHash   = req.body['kr-hash'];
-
-    // Verificar firma HMAC
-    const hmacKey       = process.env.IZIPAY_HMAC_TEST;
-    const expected = crypto.createHmac('sha256', hmacKey).update(krAnswer).digest('hex');
 
     if (expected !== krHash) {
       console.error('⚠️ Firma inválida en éxito');
@@ -193,9 +192,7 @@ router.post('/izipay/exito', async (req, res) => {
       </body>
       </html>
     `);
-  } catch (e) {
-    console.error('Error en éxito Izipay:', e);
-    res.status(500).send('Error');
+    } catch (e) {
     console.error('Error en éxito Izipay:', e.message);
     console.error('Stack:', e.stack);
     console.error('Body recibido:', JSON.stringify(req.body));
