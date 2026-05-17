@@ -196,6 +196,10 @@ router.post('/izipay/exito', async (req, res) => {
   } catch (e) {
     console.error('Error en éxito Izipay:', e);
     res.status(500).send('Error');
+    console.error('Error en éxito Izipay:', e.message);
+    console.error('Stack:', e.stack);
+    console.error('Body recibido:', JSON.stringify(req.body));
+    res.status(500).send('Error: ' + e.message);
   }
 });
 
