@@ -23,9 +23,9 @@ const crearPreferencia = async (req, res) => {
           phone: { number: datosEntrega.whatsapp },
         },
         back_urls: {
-          success: `${process.env.BASE_URL}/pago/exitoso`,
-          failure: `${process.env.BASE_URL}/pago/error`,
-          pending: `${process.env.BASE_URL}/pago/pendiente`,
+          success: 'tezorum://pago/exitoso',
+          failure: 'tezorum://pago/error',
+          pending: 'tezorum://pago/pendiente',
         },
         auto_return:        'approved',
         notification_url:   `${process.env.BASE_URL}/api/pagos/webhook`,
