@@ -8,11 +8,10 @@ const IZIPAY_BASE_URL = 'https://api.micuentaweb.pe';
 
 const { tokensTemporales, datosTemporales } = require('../utils/storage');
 
-// ── Generar token de pago ────────────────────────────────────────────────────
+// ── Generar token de pago (Tarjeta) ─────────────────────────────────────────
 const crearFormToken = async (req, res) => {
   try {
     const { total, orderId, cliente } = req.body;
-
     const credentials = Buffer.from(`${IZIPAY_USERNAME}:${IZIPAY_PASSWORD}`).toString('base64');
 
     const response = await axios.post(
@@ -26,24 +25,14 @@ const crearFormToken = async (req, res) => {
           reference: cliente.userId,
         },
       },
-      {
-        headers: {
-          Authorization:  `Basic ${credentials}`,
-          'Content-Type': 'application/json',
-        },
-      }
+      { headers: { Authorization: `Basic ${credentials}`, 'Content-Type': 'application/json' } }
     );
-
-    console.log('Izipay response status:', response.data.status);
 
     if (response.data.status === 'SUCCESS') {
       const formToken = response.data.answer.formToken;
       const tokenId   = Date.now().toString(36);
 
-      // Guardar formToken
       tokensTemporales.set(tokenId, formToken);
-
-      // Guardar datos del pedido para cuando llegue el webhook
       datosTemporales.set(tokenId, {
         usuario_id:   cliente.userId,
         datosEntrega: cliente.datosEntrega ?? {},
@@ -52,7 +41,6 @@ const crearFormToken = async (req, res) => {
         orderId:      orderId,
       });
 
-      // Limpiar después de 15 minutos
       setTimeout(() => {
         tokensTemporales.delete(tokenId);
         datosTemporales.delete(tokenId);
@@ -62,9 +50,57 @@ const crearFormToken = async (req, res) => {
     } else {
       res.status(400).json({ error: response.data.answer });
     }
-
   } catch (error) {
     console.error('Error Izipay:', error.response?.data || error.message);
+    res.status(500).json({ error: error.message });
+  }
+};
+
+// ── Generar token de pago (Yape) ─────────────────────────────────────────────
+const crearTokenYape = async (req, res) => {
+  try {
+    const { total, orderId, cliente } = req.body;
+    const credentials = Buffer.from(`${IZIPAY_USERNAME}:${IZIPAY_PASSWORD}`).toString('base64');
+
+    const response = await axios.post(
+      `${IZIPAY_BASE_URL}/api-payment/V4/Charge/CreatePayment`,
+      {
+        amount:       Math.round(total * 100),
+        currency:     'PEN',
+        orderId:      orderId,
+        paymentForms: [{ paymentMethodType: 'YAPE_CODE' }],
+        customer: {
+          email:     cliente.correo ?? 'cliente@tezorum.com',
+          reference: cliente.userId,
+        },
+      },
+      { headers: { Authorization: `Basic ${credentials}`, 'Content-Type': 'application/json' } }
+    );
+
+    if (response.data.status === 'SUCCESS') {
+      const formToken = response.data.answer.formToken;
+      const tokenId   = Date.now().toString(36) + '_yape';
+
+      tokensTemporales.set(tokenId, formToken);
+      datosTemporales.set(tokenId, {
+        usuario_id:   cliente.userId,
+        datosEntrega: cliente.datosEntrega ?? {},
+        monto:        total,
+        codigoCupon:  cliente.codigoCupon ?? null,
+        orderId:      orderId,
+      });
+
+      setTimeout(() => {
+        tokensTemporales.delete(tokenId);
+        datosTemporales.delete(tokenId);
+      }, 15 * 60 * 1000);
+
+      res.json({ tokenId });
+    } else {
+      res.status(400).json({ error: response.data.answer });
+    }
+  } catch (error) {
+    console.error('Error Izipay Yape:', error.response?.data || error.message);
     res.status(500).json({ error: error.message });
   }
 };
@@ -72,17 +108,11 @@ const crearFormToken = async (req, res) => {
 // ── Webhook / IPN ────────────────────────────────────────────────────────────
 const webhook = async (req, res) => {
   console.log('🔔 Webhook Izipay recibido:', JSON.stringify(req.body));
-  console.log('Headers:', JSON.stringify(req.headers));
   try {
     const krAnswer = req.body['kr-answer'];
     const krHash   = req.body['kr-hash'];
-
-    // ── Verificar firma HMAC ──
     const hmacKey  = process.env.IZIPAY_HMAC_TEST;
-    const expected = crypto
-      .createHmac('sha256', hmacKey)
-      .update(krAnswer)
-      .digest('hex');
+    const expected = crypto.createHmac('sha256', hmacKey).update(krAnswer).digest('hex');
 
     if (expected !== krHash) {
       console.error('⚠️ Firma HMAC inválida');
@@ -93,9 +123,6 @@ const webhook = async (req, res) => {
     const pago   = answer.transactions?.[0];
 
     if (pago?.detailedStatus === 'AUTHORISED') {
-      console.log('✅ Pago aprobado:', pago.uuid);
-
-      // Buscar datos del pedido por orderId
       const orderId = answer.orderDetails?.orderId;
       let datosPedido = null;
 
@@ -118,23 +145,22 @@ const webhook = async (req, res) => {
             tipo_envio:        'Normal',
             cupon_usado:       datosPedido.codigoCupon,
             pago: {
-              estado:           'aprobado',
-              mp_payment_id:    pago.uuid,
-              mp_status:        'approved',
-              mp_status_detail: pago.detailedStatus,
-              metodo_pago:      pago.paymentMethodType ?? 'card',
-              tipo_pago:        pago.paymentMethodType ?? 'credit_card',
-              banco:            pago.cardDetails?.issuerName ?? null,
+              estado:            'aprobado',
+              mp_payment_id:     pago.uuid,
+              mp_status:         'approved',
+              mp_status_detail:  pago.detailedStatus,
+              metodo_pago:       pago.paymentMethodType ?? 'YAPE_CODE',
+              tipo_pago:         pago.paymentMethodType ?? 'yape',
+              banco:             pago.cardDetails?.issuerName ?? null,
               ultimos_4_digitos: pago.cardDetails?.pan?.slice(-4) ?? null,
-              nombre_titular:   pago.cardDetails?.cardHolderName ?? null,
+              nombre_titular:    pago.cardDetails?.cardHolderName ?? null,
             },
           },
         };
 
         const fakeRes = {
-          status: (code) => ({
-            json: (data) => console.log(`Pedido creado desde Izipay:`, data)
-          }),
+          status: (code) => ({ json: (data) => console.log(`Pedido creado [${code}]:`, data) }),
+          json:   (data) => console.log('Pedido creado:', data),
         };
 
         await orderController.crearPedido(fakeReq, fakeRes);
@@ -151,4 +177,5 @@ const webhook = async (req, res) => {
   }
 };
 
-module.exports = { crearFormToken, webhook, tokensTemporales };
+// ── Solo un module.exports al final ─────────────────────────────────────────
+module.exports = { crearFormToken, crearTokenYape, webhook, tokensTemporales };

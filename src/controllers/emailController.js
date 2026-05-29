@@ -1,5 +1,7 @@
 const { Resend } = require('resend');
 const QRCode = require('qrcode');
+const PDFDocument = require('pdfkit');
+const bwip = require('bwip-js');
 const supabase = require('../config/supabase');
 
 const resend = new Resend(process.env.RESEND_API_KEY);
@@ -16,6 +18,107 @@ const metodoPagoNombre = (metodo) => {
     debmaster:     'Mastercard Débito',
   };
   return map[metodo] || metodo || 'No especificado';
+};
+
+// ── Generar PDF del rótulo A5 ────────────────────────────────────────────────
+const generarRotuloPDF = async ({
+  nombreTienda,
+  codigoPedido,
+  codigoSubpedido,
+  paqueteNumero,
+  totalPaquetes,
+  zona,
+  distrito,
+  datosEntrega,
+}) => {
+  return new Promise(async (resolve, reject) => {
+    try {
+      // Generar código de barras
+      const barcodeBuffer = await bwip.toBuffer({
+        bcid:        'code128',
+        text:        codigoSubpedido,
+        scale:       3,
+        height:      15,
+        includetext: false,
+      });
+
+      // Generar QR
+      const qrBuffer = await QRCode.toBuffer(codigoSubpedido, {
+        width: 100, margin: 1,
+      });
+
+      // Crear PDF A5 (148mm x 210mm = 419 x 595 puntos)
+      const doc = new PDFDocument({
+        size: 'A5',
+        margin: 20,
+      });
+
+      const chunks = [];
+      doc.on('data', chunk => chunks.push(chunk));
+      doc.on('end', () => resolve(Buffer.concat(chunks)));
+      doc.on('error', reject);
+
+      const ancho = 419;
+
+      // ── Borde punteado ──
+      doc.rect(10, 10, ancho - 20, 575).dash(4, { space: 4 }).stroke('#999');
+      doc.undash();
+
+      // ── Nombre tienda (fondo amarillo) ──
+      doc.rect(20, 20, ancho - 40, 28).fill('#FFD600');
+      doc.fontSize(13).fillColor('#000').font('Helvetica-Bold')
+        .text(nombreTienda, 25, 26, { width: ancho - 50 });
+
+      // ── Subpedido (fondo amarillo) ──
+      doc.rect(20, 54, ancho - 40, 24).fill('#FFD600');
+      doc.fontSize(11).fillColor('#000').font('Helvetica-Bold')
+        .text(`Subpedido: ${codigoSubpedido}`, 25, 59, { width: ancho - 50 });
+
+      // ── Código de barras ──
+      doc.image(barcodeBuffer, 20, 85, { width: ancho - 40, height: 60 });
+
+      // ── Número maestro de pedido y rastreo ──
+      doc.fontSize(10).fillColor('#555').font('Helvetica')
+        .text('Número de Pedido y rastreo', 20, 155, { align: 'center', width: ancho - 40 });
+      doc.fontSize(22).fillColor('#000').font('Helvetica-Bold')
+        .text(codigoPedido, 20, 170, { align: 'center', width: ancho - 40 });
+
+      // ── Zona ──
+      doc.fontSize(16).fillColor('#000').font('Helvetica-Bold')
+        .text(`ZONA: ${zona}`, 20, 210);
+
+      // ── Distrito + Paquete ──
+      doc.fontSize(10).fillColor('#555').font('Helvetica')
+        .text('Distrito:', 20, 240);
+      doc.fontSize(14).fillColor('#000').font('Helvetica-Bold')
+        .text(distrito, 20, 254);
+
+      // ── Paquete X/Y (fondo verde) ──
+      doc.rect(20, 278, 100, 22).fill('#22c55e');
+      doc.fontSize(12).fillColor('#fff').font('Helvetica-Bold')
+        .text(`PAQUETE: ${paqueteNumero}/${totalPaquetes}`, 25, 283);
+
+      // ── Línea separadora ──
+      doc.moveTo(20, 310).lineTo(ancho - 20, 310).stroke('#ddd');
+
+      // ── Datos del cliente ──
+      doc.fontSize(9).fillColor('#000').font('Helvetica-Bold')
+        .text(`Cliente: ${datosEntrega.nombre}`, 20, 318);
+      doc.font('Helvetica')
+        .text(`Domicilio: ${datosEntrega.direccion}`, 20, 333)
+        .text(`Teléfono: ${datosEntrega.whatsapp}`, 20, 347)
+        .text(`Referencia: ${datosEntrega.referencia ?? '-'}`, 20, 361);
+
+      // ── QR (esquina inferior derecha) ──
+      doc.image(qrBuffer, ancho - 120, 310, { width: 90, height: 90 });
+      doc.fontSize(7).fillColor('#555')
+        .text('Control Interno', ancho - 120, 403, { width: 90, align: 'center' });
+
+      doc.end();
+    } catch (err) {
+      reject(err);
+    }
+  });
 };
 
 // ── 1. Ticket al cliente ─────────────────────────────────────────────────────
@@ -154,7 +257,7 @@ const enviarTicketCompra = async ({ pedido, cliente, items, pago }) => {
     await resend.emails.send({
       from:    'Tezórum <onboarding@resend.dev>',
       to:      'josueacuna380@gmail.com',
-      subject: `✅ ¡Tu pedido #${pedido.numero} fue confirmado! - Tezórum`,
+      subject: `✅ ¡Tu pedido ${pedido.numero} fue confirmado! - Tezórum`,
       html,
     });
 
@@ -164,9 +267,32 @@ const enviarTicketCompra = async ({ pedido, cliente, items, pago }) => {
   }
 };
 
-// ── 2. Correo al vendedor ────────────────────────────────────────────────────
-const enviarCorreoVendedor = async ({ tienda, pedido, items, datosEntrega }) => {
+// ── 2. Correo al vendedor con rótulo PDF adjunto ─────────────────────────────
+const enviarCorreoVendedorConRotulo = async ({
+  tienda,
+  pedido,
+  codigoPedido,
+  codigoSubpedido,
+  paqueteNumero,
+  totalPaquetes,
+  zona,
+  distrito,
+  items,
+  datosEntrega,
+}) => {
   try {
+    // Generar PDF del rótulo
+    const pdfBuffer = await generarRotuloPDF({
+      nombreTienda:    tienda.nombre_tienda,
+      codigoPedido,
+      codigoSubpedido,
+      paqueteNumero,
+      totalPaquetes,
+      zona,
+      distrito,
+      datosEntrega,
+    });
+
     const itemsHTML = items.map(item => `
       <tr>
         <td style="padding:10px 0;border-bottom:1px solid #f0f0f0;font-size:15px;">
@@ -177,6 +303,8 @@ const enviarCorreoVendedor = async ({ tienda, pedido, items, datosEntrega }) => 
         </td>
       </tr>
     `).join('');
+
+    const totalVendedor = items.reduce((sum, i) => sum + (i.precio * i.cantidad), 0);
 
     const html = `
     <!DOCTYPE html>
@@ -196,10 +324,28 @@ const enviarCorreoVendedor = async ({ tienda, pedido, items, datosEntrega }) => 
         <div style="padding:20px 24px;border-bottom:2px dashed #ddd;background:#faf5ff;">
           <table style="width:100%;">
             <tr>
-              <td style="font-size:14px;color:#444;">Número de Pedido:</td>
-              <td style="text-align:right;font-size:22px;font-weight:900;color:#6B21A8;">
-                #${pedido.numero_pedido}
+              <td style="font-size:14px;color:#444;">Pedido Maestro:</td>
+              <td style="text-align:right;font-size:18px;font-weight:900;color:#6B21A8;">${codigoPedido}</td>
+            </tr>
+            <tr>
+              <td style="font-size:14px;color:#444;padding-top:6px;">Tu Subpedido:</td>
+              <td style="text-align:right;font-size:18px;font-weight:900;color:#9333EA;padding-top:6px;">${codigoSubpedido}</td>
+            </tr>
+            <tr>
+              <td style="font-size:14px;color:#444;padding-top:6px;">Paquete:</td>
+              <td style="text-align:right;font-size:14px;font-weight:bold;padding-top:6px;">
+                <span style="background:#22c55e;color:white;padding:3px 10px;border-radius:20px;">
+                  ${paqueteNumero}/${totalPaquetes}
+                </span>
               </td>
+            </tr>
+            <tr>
+              <td style="font-size:14px;color:#444;padding-top:6px;">Zona:</td>
+              <td style="text-align:right;font-size:14px;font-weight:bold;padding-top:6px;">${zona}</td>
+            </tr>
+            <tr>
+              <td style="font-size:14px;color:#444;padding-top:6px;">Distrito:</td>
+              <td style="text-align:right;font-size:14px;font-weight:bold;padding-top:6px;">${distrito}</td>
             </tr>
           </table>
         </div>
@@ -210,7 +356,7 @@ const enviarCorreoVendedor = async ({ tienda, pedido, items, datosEntrega }) => 
             <tr>
               <td style="padding:12px 0 0;font-weight:bold;font-size:16px;">TOTAL</td>
               <td style="padding:12px 0 0;text-align:right;font-weight:bold;font-size:18px;color:#6B21A8;">
-                S/ ${parseFloat(pedido.monto_total_pagar).toFixed(2)}
+                S/ ${totalVendedor.toFixed(2)}
               </td>
             </tr>
           </table>
@@ -223,6 +369,11 @@ const enviarCorreoVendedor = async ({ tienda, pedido, items, datosEntrega }) => 
             📱 <a href="https://wa.me/51${datosEntrega.whatsapp}" style="color:#16a34a;font-weight:bold;">
               +51 ${datosEntrega.whatsapp}
             </a>
+          </p>
+        </div>
+        <div style="padding:16px 24px;background:#FFF9C4;text-align:center;">
+          <p style="margin:0;font-size:13px;font-weight:bold;color:#5a4000;">
+            📎 Adjunto encontrarás tu rótulo PDF. Imprímelo en formato A5 y pégalo en tu paquete.
           </p>
         </div>
         <div style="padding:20px 24px;text-align:center;background:#6B21A8;">
@@ -238,15 +389,21 @@ const enviarCorreoVendedor = async ({ tienda, pedido, items, datosEntrega }) => 
 
     await resend.emails.send({
       from:    'Tezórum <onboarding@resend.dev>',
-      to: 'josueacuna380@gmail.com',
-      subject: `🎉 ¡Vendiste! Nuevo pedido #${pedido.numero_pedido} - Tezórum`,
+      to:      'josueacuna380@gmail.com',
+      subject: `🎉 ¡Vendiste! ${codigoSubpedido} - Tezórum`,
       html,
+      attachments: [
+        {
+          filename: `rotulo_${codigoSubpedido}.pdf`,
+          content:  pdfBuffer.toString('base64'),
+        },
+      ],
     });
 
-    console.log(`✅ Correo vendedor enviado a ${tienda.email}`);
+    console.log(`✅ Correo vendedor + rótulo enviado: ${codigoSubpedido}`);
   } catch (error) {
     console.error('❌ Error correo vendedor:', error);
   }
 };
 
-module.exports = { enviarTicketCompra, enviarCorreoVendedor };
+module.exports = { enviarTicketCompra, enviarCorreoVendedorConRotulo };
