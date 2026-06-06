@@ -17,8 +17,9 @@ app.use(express.json()); // Permite recibir JSON en las peticiones
 app.use(express.urlencoded({ extended: true })); // ← agrega esto
 
 // Rutas
-app.use('/api', apiRoutes);
+
 app.use('/api/admins', adminRoutes);
+app.use('/api', apiRoutes);
 app.use('/webhooks', webhookRoutes);
 app.use('/api/ubicacion', locationRoutes);
 app.use('/api/ofertas-flash', flashRoutes);
