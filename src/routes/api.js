@@ -1,66 +1,62 @@
 const express = require('express');
-const crypto = require('crypto');
-const router = express.Router();
-const supabase = require('../config/supabase'); 
-const authController = require('../controllers/authController');
-const walletController = require('../controllers/walletController');
-const shopController = require('../controllers/shopController');
-const orderController = require('../controllers/orderController');
-const cartController = require('../controllers/cartController');
-const couponController = require('../controllers/couponController');
-const resenaController = require('../controllers/resenaController');
-const favoritosController = require('../controllers/favoritosController');
-const pagoRoutes = require('./pagoRoutes');
-const izipayRoutes = require('./izipayRoutes');
+const crypto  = require('crypto');
+const router  = express.Router();
+const supabase             = require('../config/supabase');
+const authController       = require('../controllers/authController');
+const walletController     = require('../controllers/walletController');
+const shopController       = require('../controllers/shopController');
+const orderController      = require('../controllers/orderController');
+const cartController       = require('../controllers/cartController');
+const couponController     = require('../controllers/couponController');
+const resenaController     = require('../controllers/resenaController');
+const favoritosController  = require('../controllers/favoritosController');
+const pagoRoutes           = require('./pagoRoutes');
+const izipayRoutes         = require('./izipayRoutes');
 const { tokensTemporales, datosTemporales } = require('../utils/storage');
 
-router.post('/auth/register', authController.register);
-router.post('/auth/login', authController.login);
+router.post('/auth/register',           authController.register);
+router.post('/auth/login',              authController.login);
 router.post('/auth/completar-registro', authController.completarRegistro);
-router.post('/pedidos/crear', orderController.crearPedido);
-router.post('/wallet/agregar', walletController.reclamarPremioDiario);
+router.post('/pedidos/crear',           orderController.crearPedido);
+router.post('/wallet/agregar',          walletController.reclamarPremioDiario);
 
-router.use('/pagos', pagoRoutes);
-router.use('/izipay', izipayRoutes);
+router.use('/pagos',   pagoRoutes);
+router.use('/izipay',  izipayRoutes);
 
-router.post('/auth/validar-celular', authController.validarCelular);
-router.post('/carrito/agregar', cartController.agregarAlCarrito);
-router.post('/cupones/validar', couponController.validarCupon);
-router.post('/resenas', resenaController.crearResena);
-router.get('/resenas/:productoId', resenaController.obtenerResenas);
-router.get('/promociones', shopController.getPromociones);
-router.get('/productos/:id', shopController.getProductoPorId);
-router.get('/cupones/disponibles', couponController.listarCuponesDisponibles);
-router.get('/auth/perfil/:id', authController.obtenerPerfil);
-router.get('/favoritos/:userId', favoritosController.obtener);
-router.get('/tiendas/:id', shopController.getTienda);
-router.post('/favoritos', favoritosController.agregar);
+router.post('/auth/validar-celular',          authController.validarCelular);
+router.post('/carrito/agregar',               cartController.agregarAlCarrito);
+router.post('/cupones/validar',               couponController.validarCupon);
+router.post('/resenas',                       resenaController.crearResena);
+router.get ('/resenas/:productoId',           resenaController.obtenerResenas);
+router.get ('/promociones',                   shopController.getPromociones);
+router.get ('/productos/:id',                 shopController.getProductoPorId);
+router.get ('/cupones/disponibles',           couponController.listarCuponesDisponibles);
+router.get ('/auth/perfil/:id',               authController.obtenerPerfil);
+router.get ('/favoritos/:userId',             favoritosController.obtener);
+router.get ('/tiendas/:id',                   shopController.getTienda);
+router.post('/favoritos',                     favoritosController.agregar);
 router.delete('/favoritos/:userId/:productoId', favoritosController.eliminar);
 router.delete('/carrito/:userId/:productoId', cartController.eliminarDelCarrito);
 router.delete('/resenas/:productoId/:userId', resenaController.eliminarResena);
-router.get('/carrito/:userId', cartController.obtenerCarrito);
-router.get('/pedidos/usuario/:userId', orderController.obtenerPedidosPorUsuario);
-router.get('/wallet/estado/:userId', walletController.obtenerEstadoBilletera);
-router.get('/productos', shopController.obtenerProductos);
+router.get ('/carrito/:userId',               cartController.obtenerCarrito);
+router.get ('/pedidos/usuario/:userId',       orderController.obtenerPedidosPorUsuario);
+router.get ('/wallet/estado/:userId',         walletController.obtenerEstadoBilletera);
+router.get ('/productos',                     shopController.obtenerProductos);
 
 // ── Izipay — página de pago hosted ──────────────────────────────────────────
 router.get('/izipay/pagar/:tokenId', (req, res) => {
   const { tokenId } = req.params;
-  const formToken = tokensTemporales.get(tokenId);
+  const formToken   = tokensTemporales.get(tokenId);
 
   if (!formToken) {
     return res.send(`
-      <html>
-      <body style="text-align:center;font-family:Arial;padding:40px;">
+      <html><body style="text-align:center;font-family:Arial;padding:40px;">
         <h1 style="color:red;">⏱️ Token expirado</h1>
         <p>Vuelve a la app e intenta de nuevo.</p>
-      </body>
-      </html>
-    `);
+      </body></html>`);
   }
 
   const publicKey = process.env.IZIPAY_PUBLIC_KEY_TEST;
-
   res.send(`
 <!DOCTYPE html>
 <html>
@@ -79,15 +75,15 @@ router.get('/izipay/pagar/:tokenId', (req, res) => {
   <script type="text/javascript" src="https://static.micuentaweb.pe/static/js/krypton-client/V4.0/ext/neon.js"></script>
   <style>
     * { box-sizing: border-box; }
-    body { margin: 0; padding: 0; font-family: Arial, sans-serif; background: linear-gradient(135deg, #6B21A8, #9333EA); min-height: 100vh; }
-    .header { text-align: center; padding: 30px 20px 20px; }
-    .header h2 { color: white; font-size: 22px; margin: 0; font-weight: 900; }
-    .header p { color: rgba(255,255,255,0.8); font-size: 13px; margin: 4px 0 0; }
-    .container { background: white; border-radius: 24px 24px 0 0; padding: 24px; min-height: calc(100vh - 120px); }
-    .secure-badge { display: flex; align-items: center; justify-content: center; gap: 6px; margin-bottom: 20px; color: #666; font-size: 13px; }
-    .kr-payment-button { background: linear-gradient(135deg, #6B21A8, #9333EA) !important; border-radius: 14px !important; width: 100% !important; height: 52px !important; font-size: 16px !important; font-weight: bold !important; margin-top: 16px !important; border: none !important; box-shadow: 0 4px 15px rgba(107,33,168,0.4) !important; }
-    .kr-field-wrapper { border-radius: 12px !important; border: 1.5px solid #e5e7eb !important; margin-bottom: 12px !important; }
-    .kr-field-wrapper:focus-within { border-color: #6B21A8 !important; }
+    body { margin:0; padding:0; font-family:Arial,sans-serif; background:linear-gradient(135deg,#6B21A8,#9333EA); min-height:100vh; }
+    .header { text-align:center; padding:30px 20px 20px; }
+    .header h2 { color:white; font-size:22px; margin:0; font-weight:900; }
+    .header p  { color:rgba(255,255,255,0.8); font-size:13px; margin:4px 0 0; }
+    .container { background:white; border-radius:24px 24px 0 0; padding:24px; min-height:calc(100vh - 120px); }
+    .secure-badge { display:flex; align-items:center; justify-content:center; gap:6px; margin-bottom:20px; color:#666; font-size:13px; }
+    .kr-payment-button { background:linear-gradient(135deg,#6B21A8,#9333EA) !important; border-radius:14px !important; width:100% !important; height:52px !important; font-size:16px !important; font-weight:bold !important; margin-top:16px !important; border:none !important; box-shadow:0 4px 15px rgba(107,33,168,0.4) !important; }
+    .kr-field-wrapper { border-radius:12px !important; border:1.5px solid #e5e7eb !important; margin-bottom:12px !important; }
+    .kr-field-wrapper:focus-within { border-color:#6B21A8 !important; }
   </style>
 </head>
 <body>
@@ -105,117 +101,139 @@ router.get('/izipay/pagar/:tokenId', (req, res) => {
     </div>
   </div>
 </body>
-</html>
-  `);
+</html>`);
 });
 
 // ── Izipay — éxito del pago ──────────────────────────────────────────────────
 router.post('/izipay/exito', async (req, res) => {
+  console.log('💳 /izipay/exito recibido');
+
+  // Responder a Izipay inmediatamente para evitar timeouts
+  // El pedido se crea de forma asíncrona después
+  res.send(`
+    <html>
+    <head>
+      <meta charset="UTF-8">
+      <meta http-equiv="refresh" content="3;url=tezorum://pago-exitoso">
+    </head>
+    <body style="text-align:center;font-family:Arial;padding:40px;background:#f5f5f5;">
+      <div style="background:white;border-radius:16px;padding:40px;max-width:400px;margin:0 auto;">
+        <h1 style="color:#16a34a;">✅ ¡Pago exitoso!</h1>
+        <p style="color:#666;">Tu pedido ha sido registrado correctamente.</p>
+        <p style="color:#666;">Recibirás un correo con los detalles.</p>
+        <p style="color:#999;font-size:12px;">Puedes cerrar esta ventana y volver a la app.</p>
+      </div>
+    </body>
+    </html>`);
+
+  // Procesar pedido de forma asíncrona (no bloquea la respuesta)
   try {
     const krAnswer = req.body['kr-answer'];
     const krHash   = req.body['kr-hash'];
     const hmacKey  = process.env.IZIPAY_HMAC_TEST;
+
+    console.log('🔐 Verificando firma HMAC...');
     const expected = crypto.createHmac('sha256', hmacKey).update(krAnswer).digest('hex');
 
-    // Logs DESPUÉS de declarar las variables
-    console.log('✅ Pago exitoso recibido body:', JSON.stringify(req.body));
-    console.log('krAnswer:', krAnswer);
-    console.log('krHash recibido:', krHash);
-    console.log('krHash calculado:', expected);
-    console.log('hmacKey:', hmacKey?.substring(0, 10) + '...');
-
     if (expected !== krHash) {
-      console.error('⚠️ Firma inválida en éxito');
-      return res.status(401).send('Firma inválida');
+      console.error('⚠️ Firma HMAC inválida en /izipay/exito');
+      console.error('   Esperado:', expected);
+      console.error('   Recibido:', krHash);
+      return;
     }
 
     const answer  = JSON.parse(krAnswer);
     const orderId = answer.orderDetails?.orderId;
+    console.log('📋 OrderId:', orderId, '| Estado:', answer.orderStatus);
 
-    if (answer.orderStatus === 'PAID') {
-      let datosPedido = null;
+    if (answer.orderStatus !== 'PAID') {
+      console.warn('⚠️ Estado no es PAID:', answer.orderStatus);
+      return;
+    }
 
-      for (const [tokenId, datos] of datosTemporales.entries()) {
-        if (datos.orderId === orderId) {
-          datosPedido = datos;
-          datosTemporales.delete(tokenId);
-          break;
-        }
-      }
-
-      if (datosPedido) {
-        const pago = answer.transactions?.[0];
-        const fakeReq = {
-          body: {
-            usuario_id:        datosPedido.usuario_id,
-            monto_total_pagar: datosPedido.monto,
-            monto_subtotal:    datosPedido.monto,
-            costo_envio:       0,
-            datos_entrega:     datosPedido.datosEntrega,
-            tipo_envio:        'Normal',
-            cupon_usado:       datosPedido.codigoCupon,
-            pago: {
-              estado:            'aprobado',
-              mp_payment_id:     pago?.uuid ?? orderId,
-              mp_status:         'approved',
-              mp_status_detail:  pago?.detailedStatus ?? 'AUTHORISED',
-              metodo_pago:       pago?.paymentMethodType ?? 'card',
-              tipo_pago:         pago?.paymentMethodType ?? 'credit_card',
-              banco:             pago?.transactionDetails?.cardDetails?.issuerName ?? null,
-              ultimos_4_digitos: pago?.transactionDetails?.cardDetails?.pan?.replace(/X/g, '')?.slice(-4) ?? null,
-              nombre_titular:    pago?.transactionDetails?.cardDetails?.cardHolderName ?? null,
-            },
-          },
-        };
-
-        const fakeRes = {
-          status: (code) => ({ json: (data) => console.log(`Pedido creado [${code}]:`, data) }),
-          json:   (data) => console.log('Pedido creado:', data),
-        };
-
-        await orderController.crearPedido(fakeReq, fakeRes);
-        console.log('✅ Pedido creado desde éxito Izipay');
-      } else {
-        console.warn('⚠️ No se encontraron datos del pedido para orderId:', orderId);
+    // Buscar datos del pedido en memoria temporal
+    let datosPedido = null;
+    for (const [tokenId, datos] of datosTemporales.entries()) {
+      if (datos.orderId === orderId) {
+        datosPedido = datos;
+        datosTemporales.delete(tokenId);
+        console.log('✅ Datos del pedido encontrados para orderId:', orderId);
+        break;
       }
     }
 
-    res.send(`
-      <html>
-      <head><meta charset="UTF-8"></head>
-      <body style="text-align:center;font-family:Arial;padding:40px;background:#f5f5f5;">
-        <div style="background:white;border-radius:16px;padding:40px;max-width:400px;margin:0 auto;">
-          <h1 style="color:#16a34a;">✅ ¡Pago exitoso!</h1>
-          <p style="color:#666;">Tu pedido ha sido registrado correctamente.</p>
-          <p style="color:#666;">Recibirás un correo con los detalles.</p>
-        </div>
-      </body>
-      </html>
-    `);
-    } catch (e) {
-    console.error('Error en éxito Izipay:', e.message);
+    if (!datosPedido) {
+      console.error('❌ No se encontraron datos para orderId:', orderId);
+      console.log('📦 Tokens disponibles:', [...datosTemporales.keys()]);
+      return;
+    }
+
+    console.log('📦 datosPedido:', JSON.stringify(datosPedido));
+
+    const pago = answer.transactions?.[0];
+
+    const fakeReq = {
+      body: {
+        usuario_id:        datosPedido.usuario_id,
+        monto_total_pagar: datosPedido.monto,
+        monto_subtotal:    datosPedido.subtotal ?? datosPedido.monto, // ← FIX
+        costo_envio:       datosPedido.costo_envio ?? 0,
+        datos_entrega:     datosPedido.datosEntrega,
+        tipo_envio:        datosPedido.tipo_envio ?? 'Normal',
+        cupon_usado:       datosPedido.codigoCupon ?? null,
+        pago: {
+          estado:            'aprobado',
+          mp_payment_id:     pago?.uuid ?? orderId,
+          mp_status:         'approved',
+          mp_status_detail:  pago?.detailedStatus ?? 'AUTHORISED',
+          metodo_pago:       pago?.paymentMethodType ?? 'card',
+          tipo_pago:         pago?.paymentMethodType ?? 'credit_card',
+          banco:             pago?.transactionDetails?.cardDetails?.issuerName ?? null,
+          ultimos_4_digitos: pago?.transactionDetails?.cardDetails?.pan?.replace(/X/g, '')?.slice(-4) ?? null,
+          nombre_titular:    pago?.transactionDetails?.cardDetails?.cardHolderName ?? null,
+        },
+      },
+    };
+
+    // fakeRes con logs detallados
+    const fakeRes = {
+      status: (code) => ({
+        json: (data) => {
+          if (code >= 400) {
+            console.error(`❌ Error al crear pedido [${code}]:`, JSON.stringify(data));
+          } else {
+            console.log(`✅ Pedido creado [${code}]:`, JSON.stringify(data));
+          }
+        },
+      }),
+      json: (data) => console.log('✅ Pedido creado exitosamente:', JSON.stringify(data)),
+    };
+
+    await orderController.crearPedido(fakeReq, fakeRes);
+
+  } catch (e) {
+    console.error('🚨 Error procesando éxito Izipay:', e.message);
     console.error('Stack:', e.stack);
-    console.error('Body recibido:', JSON.stringify(req.body));
-    res.status(500).send('Error: ' + e.message);
   }
 });
 
 // ── Izipay — error del pago ───────────────────────────────────────────────────
 router.post('/izipay/error', (req, res) => {
+  console.log('❌ /izipay/error recibido');
   res.send(`
     <html>
     <head><meta charset="UTF-8"></head>
     <body style="text-align:center;font-family:Arial;padding:40px;background:#f5f5f5;">
       <div style="background:white;border-radius:16px;padding:40px;max-width:400px;margin:0 auto;">
         <h1 style="color:red;">❌ Pago rechazado</h1>
-        <p style="color:#666;">No se pudo procesar tu pago. Puedes cerrar esta ventana e intentar de nuevo.</p>
+        <p style="color:#666;">No se pudo procesar tu pago.</p>
+        <p style="color:#666;">Puedes cerrar esta ventana e intentar de nuevo.</p>
       </div>
     </body>
-    </html>
-  `);
+    </html>`);
 });
 
-// ── Check DB ─────────────────────────────────────────────────────────────────
+// ── Check DB ──────────────────────────────────────────────────────────────────
 router.get('/check-db', async (req, res) => {
   try {
     const { data, error, status } = await supabase
