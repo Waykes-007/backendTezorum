@@ -4,18 +4,21 @@ const apiRoutes = require('./routes/api');
 const webhookRoutes = require('./routes/webhooks');
 const locationRoutes = require('./routes/locationRoutes');
 const flashRoutes = require('./routes/flashRoutes');
+const adminRoutes = require('./routes/adminRoutes');
+
 
 
 const app = express();
 
 // Middlewares
 app.use(cors()); // Permite conexiones desde el dispositivo móvil
+
 app.use(express.json()); // Permite recibir JSON en las peticiones
 app.use(express.urlencoded({ extended: true })); // ← agrega esto
 
 // Rutas
 app.use('/api', apiRoutes);
-
+app.use('/api/admins', adminRoutes);
 app.use('/webhooks', webhookRoutes);
 app.use('/api/ubicacion', locationRoutes);
 app.use('/api/ofertas-flash', flashRoutes);
