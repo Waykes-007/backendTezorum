@@ -1,7 +1,7 @@
 const express = require('express');
 const router  = express.Router();
 const adminController = require('../controllers/adminController');
-const { soloSuperAdmin, soloAdmin } = require('../middleware/authMiddleware');
+const { soloSuperAdmin, soloAdmin } = require('../middlewares/authMiddleware');
 
 // ── Verificar si es admin (llamado en login, sin middleware) ──────────────────
 router.post('/verificar', adminController.verificarAdmin);
