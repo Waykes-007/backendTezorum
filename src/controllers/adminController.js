@@ -52,7 +52,19 @@ const adminController = {
         return res.status(400).json({ error: 'Ya existe un administrador con ese email' });
       }
 
-      // 2. Generar link de invitación con Supabase Auth
+      // 2. Insertar en tabla admins PRIMERO (antes de crear en auth)
+      const { error: insertError } = await supabaseAdmin
+        .from('admins')
+        .insert([{
+          email,
+          nombre,
+          rol,
+          activo: false,
+          creado_por: creadoPorId ?? null,
+        }]);
+      if (insertError) throw insertError;
+
+      // 3. Generar link de invitación con Supabase Auth (ahora el trigger ya encontrará al admin)
       const { data: linkData, error: linkError } = await supabaseAdmin.auth.admin.generateLink({
         type: 'invite',
         email,
@@ -61,21 +73,11 @@ const adminController = {
           data: { nombre, rol, es_admin: true },
         },
       });
-
-      if (linkError) throw linkError;
-
-      // 3. Insertar en tabla admins
-      const { error: insertError } = await supabaseAdmin
-        .from('admins')
-        .insert([{
-          email,
-          nombre,
-          rol,
-          activo: false, // se activa cuando acepta la invitación
-          creado_por: creadoPorId ?? null,
-        }]);
-
-      if (insertError) throw insertError;
+      if (linkError) {
+        // Si falla el link, revertir el insert para no dejar datos huérfanos
+        await supabaseAdmin.from('admins').delete().eq('email', email);
+        throw linkError;
+      }
 
       // 4. Enviar correo de invitación con Resend
       const inviteUrl = linkData.properties?.action_link;
