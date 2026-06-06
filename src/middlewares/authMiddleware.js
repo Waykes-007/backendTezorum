@@ -59,6 +59,8 @@ const authMiddleware = {
     if (!token) return res.status(401).json({ error: 'No autorizado' });
 
     try {
+        console.log('JWT SECRET:', process.env.SUPABASE_JWT_SECRET?.slice(0, 10)); // ← agregar
+        console.log('TOKEN:', token?.slice(0, 30)); // ← agregar
       const decoded = jwt.verify(token, process.env.SUPABASE_JWT_SECRET);
       const email   = decoded.email;
 
