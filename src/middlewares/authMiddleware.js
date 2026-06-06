@@ -1,4 +1,3 @@
-const jwt     = require('jsonwebtoken');
 const { createClient } = require('@supabase/supabase-js');
 
 // Cliente con service role para leer tabla admins sin RLS
@@ -32,14 +31,13 @@ const authMiddleware = {
     if (!token) return res.status(401).json({ error: 'No autorizado' });
 
     try {
-      const secret  = Buffer.from(process.env.SUPABASE_JWT_SECRET, 'base64');
-        const decoded = jwt.verify(token, secret);
-      const email   = decoded.email;
+      const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+      if (authError || !user) return res.status(401).json({ error: 'Token inválido' });
 
       const { data: admin, error } = await supabaseAdmin
         .from('admins')
         .select('id, email, nombre, rol, activo')
-        .eq('email', email)
+        .eq('email', user.email)
         .single();
 
       if (error || !admin) return res.status(403).json({ error: 'No es administrador' });
@@ -60,20 +58,17 @@ const authMiddleware = {
     if (!token) return res.status(401).json({ error: 'No autorizado' });
 
     try {
-        console.log('JWT SECRET:', process.env.SUPABASE_JWT_SECRET?.slice(0, 10)); // ← agregar
-        console.log('TOKEN:', token?.slice(0, 30)); // ← agregar
-      const secret  = Buffer.from(process.env.SUPABASE_JWT_SECRET, 'base64');
-        const decoded = jwt.verify(token, secret);
-      const email   = decoded.email;
+      const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+      if (authError || !user) return res.status(401).json({ error: 'Token inválido' });
 
       const { data: admin, error } = await supabaseAdmin
         .from('admins')
         .select('id, email, nombre, rol, activo')
-        .eq('email', email)
+        .eq('email', user.email)
         .single();
 
-      if (error || !admin)           return res.status(403).json({ error: 'No es administrador' });
-      if (!admin.activo)             return res.status(403).json({ error: 'Cuenta desactivada' });
+      if (error || !admin)             return res.status(403).json({ error: 'No es administrador' });
+      if (!admin.activo)               return res.status(403).json({ error: 'Cuenta desactivada' });
       if (admin.rol !== 'super_admin') return res.status(403).json({ error: 'Se requiere rol de Super Administrador' });
 
       req.adminId    = admin.id;
