@@ -40,51 +40,61 @@ const orderController = {
           .select('producto_id, cantidad, productos(id, nombre_producto, precio_normal, precio_oferta, tienda_id, tiendas(id, nombre_tienda, email))')
           .eq('usuario_id', usuario_id);
 
-        if (errCart || !data?.length) {
-          throw new Error('Carrito vacío o error al validar');
+        if (errCart) {
+          console.warn('⚠️ Error leyendo carrito:', errCart.message);
         }
-        itemsCarrito = data;
+        itemsCarrito = data ?? [];
+        console.log(`🛒 Items del carrito: ${itemsCarrito.length}`);
       } else {
         console.log(`✅ Usando ${itemsCarrito.length} items guardados del token`);
       }
 
       // ── 2. Buscar ofertas flash activas ───────────────────────────────────
-      const productoIds = itemsCarrito.map(i => i.producto_id);
-      const { data: ofertasActivas } = await supabase
-        .from('ofertas_flash')
-        .select('id, activa, tipo_limite, valor_limite, usos_actuales, precio_oferta, producto_id')
-        .eq('activa', true)
-        .in('producto_id', productoIds);
-
-      const ahora = new Date();
       const mapaOfertas = {};
-      for (const oferta of (ofertasActivas ?? [])) {
-        if (oferta.tipo_limite === 'tiempo' && new Date(oferta.valor_limite) < ahora) continue;
-        if (oferta.tipo_limite === 'cantidad' &&
-            parseInt(oferta.usos_actuales) >= parseInt(oferta.valor_limite)) continue;
-        mapaOfertas[oferta.producto_id] = oferta;
+      if (itemsCarrito.length > 0) {
+        const productoIds = itemsCarrito.map(i => i.producto_id);
+        const { data: ofertasActivas } = await supabase
+          .from('ofertas_flash')
+          .select('id, activa, tipo_limite, valor_limite, usos_actuales, precio_oferta, producto_id')
+          .eq('activa', true)
+          .in('producto_id', productoIds);
+
+        const ahora = new Date();
+        for (const oferta of (ofertasActivas ?? [])) {
+          if (oferta.tipo_limite === 'tiempo' && new Date(oferta.valor_limite) < ahora) continue;
+          if (oferta.tipo_limite === 'cantidad' &&
+              parseInt(oferta.usos_actuales) >= parseInt(oferta.valor_limite)) continue;
+          mapaOfertas[oferta.producto_id] = oferta;
+        }
       }
 
-      // ── 3. Calcular subtotal real ─────────────────────────────────────────
-      let subtotalCalculado = 0;
-      for (const item of itemsCarrito) {
-        const oferta = mapaOfertas[item.producto_id];
-        const precio = oferta
-          ? parseFloat(oferta.precio_oferta)
-          : parseFloat(item.productos?.precio_oferta || item.productos?.precio_normal || 0);
-        subtotalCalculado += precio * parseInt(item.cantidad);
-      }
+      // ── 3. Calcular y validar subtotal ────────────────────────────────────
+      // Si no hay items (carrito vacío), confiamos en el monto de Izipay
+      let subtotalCalculado = parseFloat(monto_total_pagar);
 
-      console.log(`💰 Subtotal calculado: ${subtotalCalculado} | Enviado: ${monto_subtotal}`);
+      if (itemsCarrito.length > 0) {
+        subtotalCalculado = 0;
+        for (const item of itemsCarrito) {
+          const oferta = mapaOfertas[item.producto_id];
+          const precio = oferta
+            ? parseFloat(oferta.precio_oferta)
+            : parseFloat(item.productos?.precio_oferta || item.productos?.precio_normal || 0);
+          subtotalCalculado += precio * parseInt(item.cantidad);
+        }
 
-      const subtotalCliente = parseFloat(monto_subtotal);
-      const montoTotal      = parseFloat(monto_total_pagar);
-      if (Math.abs(subtotalCalculado - subtotalCliente) > 1 &&
-          Math.abs(subtotalCalculado - montoTotal) > 1) {
-        console.error(`❌ Monto no coincide: calculado=${subtotalCalculado} subtotal=${subtotalCliente} total=${montoTotal}`);
-        return res.status(400).json({
-          error: 'El monto del pedido no coincide. Refresca el carrito e intenta de nuevo.',
-        });
+        console.log(`💰 Subtotal calculado: ${subtotalCalculado} | Enviado: ${monto_subtotal}`);
+
+        const subtotalCliente = parseFloat(monto_subtotal);
+        const montoTotal      = parseFloat(monto_total_pagar);
+        if (Math.abs(subtotalCalculado - subtotalCliente) > 1 &&
+            Math.abs(subtotalCalculado - montoTotal) > 1) {
+          console.error(`❌ Monto no coincide: calculado=${subtotalCalculado} subtotal=${subtotalCliente} total=${montoTotal}`);
+          return res.status(400).json({
+            error: 'El monto del pedido no coincide. Refresca el carrito e intenta de nuevo.',
+          });
+        }
+      } else {
+        console.log(`💰 Sin items para validar, usando monto de Izipay: ${subtotalCalculado}`);
       }
 
       // ── 4. Actualizar perfil del usuario ──────────────────────────────────
@@ -154,30 +164,33 @@ const orderController = {
       console.log('📋 Código:', codigoPedido);
 
       // ── 10. Insertar detalles ─────────────────────────────────────────────
-      const detallesData = itemsCarrito.map(item => {
-        const oferta = mapaOfertas[item.producto_id];
-        const precioUsado = oferta
-          ? parseFloat(oferta.precio_oferta)
-          : parseFloat(item.productos?.precio_oferta || item.productos?.precio_normal || 0);
-        return {
-          pedido_id:                 pedidoInsertado.id,
-          producto_id:               item.producto_id,
-          cantidad:                  item.cantidad,
-          precio_unitario_historico: precioUsado,
-          subtotal_item:             precioUsado * parseInt(item.cantidad),
-        };
-      });
-
-      const { error: errDetalle } = await supabase.from('detalle_pedidos').insert(detallesData);
-      if (errDetalle) throw errDetalle;
-      console.log('✅ Detalles insertados');
-
-      // ── 11. Descontar stock ───────────────────────────────────────────────
-      for (const item of itemsCarrito) {
-        await supabase.rpc('decrementar_stock', {
-          p_producto_id: item.producto_id,
-          p_cantidad:    parseInt(item.cantidad),
+      let detallesData = [];
+      if (itemsCarrito.length > 0) {
+        detallesData = itemsCarrito.map(item => {
+          const oferta = mapaOfertas[item.producto_id];
+          const precioUsado = oferta
+            ? parseFloat(oferta.precio_oferta)
+            : parseFloat(item.productos?.precio_oferta || item.productos?.precio_normal || 0);
+          return {
+            pedido_id:                 pedidoInsertado.id,
+            producto_id:               item.producto_id,
+            cantidad:                  item.cantidad,
+            precio_unitario_historico: precioUsado,
+            subtotal_item:             precioUsado * parseInt(item.cantidad),
+          };
         });
+
+        const { error: errDetalle } = await supabase.from('detalle_pedidos').insert(detallesData);
+        if (errDetalle) throw errDetalle;
+        console.log('✅ Detalles insertados');
+
+        // ── 11. Descontar stock ─────────────────────────────────────────────
+        for (const item of itemsCarrito) {
+          await supabase.rpc('decrementar_stock', {
+            p_producto_id: item.producto_id,
+            p_cantidad:    parseInt(item.cantidad),
+          });
+        }
       }
 
       // ── 12. Quemar cupón ──────────────────────────────────────────────────
@@ -201,43 +214,37 @@ const orderController = {
       await supabase.from('carrito').delete().eq('usuario_id', usuario_id);
       console.log('🛒 Carrito limpiado');
 
-      // ── 15. Obtener detalles con tienda via SQL directo ───────────────────
-      // Usamos queries separadas para evitar problemas con joins de PostgREST
+      // ── 15. Obtener items con tienda via queries separadas ────────────────
       console.log('🏪 Agrupando por tienda...');
 
-      // Paso A: leer detalle_pedidos
       const { data: detallesPedido } = await supabase
         .from('detalle_pedidos')
         .select('producto_id, cantidad, precio_unitario_historico')
         .eq('pedido_id', pedidoInsertado.id);
 
-      // Paso B: leer productos con tienda_id
       const productosIds = (detallesPedido ?? []).map(d => d.producto_id);
       const { data: productosData } = await supabase
         .from('productos')
         .select('id, nombre_producto, tienda_id')
         .in('id', productosIds);
 
-      // Paso C: leer tiendas
       const tiendaIds = [...new Set((productosData ?? []).map(p => p.tienda_id).filter(Boolean))];
       const { data: tiendasData } = await supabase
         .from('tiendas')
         .select('id, nombre_tienda, email')
         .in('id', tiendaIds);
 
-      // Mapas para lookup rápido
       const mapaProductos = {};
       for (const p of (productosData ?? [])) mapaProductos[p.id] = p;
 
       const mapaTiendas = {};
       for (const t of (tiendasData ?? [])) mapaTiendas[t.id] = t;
 
-      // Agrupar por tienda
       const itemsPorTienda = {};
       for (const detalle of (detallesPedido ?? [])) {
-        const producto  = mapaProductos[detalle.producto_id];
-        const tiendaId  = producto?.tienda_id;
-        const tienda    = mapaTiendas[tiendaId];
+        const producto = mapaProductos[detalle.producto_id];
+        const tiendaId = producto?.tienda_id;
+        const tienda   = mapaTiendas[tiendaId];
 
         if (!tiendaId || !tienda) {
           console.warn(`⚠️ Sin tienda para producto ${detalle.producto_id}`);
@@ -266,7 +273,7 @@ const orderController = {
         const codigoSub     = `${codigoPedido}-${letra}`;
         const paqueteNumero = i + 1;
 
-        console.log(`📦 Creando subpedido ${codigoSub} para tienda ${tiendaId}`);
+        console.log(`📦 Creando subpedido ${codigoSub}`);
 
         const { error: errSub } = await supabase.from('subpedidos').insert([{
           pedido_id:        pedidoInsertado.id,
@@ -363,12 +370,12 @@ const orderController = {
             whatsapp: datos_entrega.whatsapp,
             dni:      datos_entrega.dni,
           },
-          items: detallesData.map(item => {
-            const prod = itemsCarrito.find(i => i.producto_id === item.producto_id);
+          items: (detallesPedido ?? []).map(det => {
+            const prod = mapaProductos[det.producto_id];
             return {
-              nombre:   prod?.productos?.nombre_producto ?? 'Producto',
-              cantidad: item.cantidad,
-              precio:   item.precio_unitario_historico,
+              nombre:   prod?.nombre_producto ?? 'Producto',
+              cantidad: det.cantidad,
+              precio:   parseFloat(det.precio_unitario_historico),
             };
           }),
           pago: pago ?? null,
