@@ -108,13 +108,10 @@ router.get('/izipay/pagar/:tokenId', (req, res) => {
 router.post('/izipay/exito', async (req, res) => {
   console.log('💳 /izipay/exito recibido');
 
-  // Responder inmediatamente con HTML que redirige a deep link de la app
-  // El JavaScript notifica a Flutter vía window.location.href
+  // Responder al WebView con HTML + JS que notifica a Flutter via deep link
   res.send(`
     <html>
-    <head>
-      <meta charset="UTF-8">
-    </head>
+    <head><meta charset="UTF-8"></head>
     <body style="text-align:center;font-family:Arial;padding:40px;background:#f5f5f5;">
       <div style="background:white;border-radius:16px;padding:40px;max-width:400px;margin:0 auto;">
         <h1 style="color:#16a34a;">✅ ¡Pago exitoso!</h1>
@@ -122,7 +119,6 @@ router.post('/izipay/exito', async (req, res) => {
         <p style="color:#666;">Recibirás un correo con los detalles.</p>
       </div>
       <script>
-        // Redirigir al deep link para notificar a Flutter
         setTimeout(function() {
           window.location.href = 'tezorum://pago-exitoso';
         }, 1500);
@@ -130,24 +126,20 @@ router.post('/izipay/exito', async (req, res) => {
     </body>
     </html>`);
 
-  // Procesar pedido de forma asíncrona (no bloquea la respuesta al WebView)
+  // Procesar pedido de forma asíncrona
   try {
     const krAnswer = req.body['kr-answer'];
     const krHash   = req.body['kr-hash'];
     const hmacKey  = process.env.IZIPAY_HMAC_TEST;
 
     if (!krAnswer || !krHash || !hmacKey) {
-      console.error('❌ Faltan parámetros en /izipay/exito');
+      console.error('❌ Faltan parámetros HMAC');
       return;
     }
 
-    console.log('🔐 Verificando firma HMAC...');
     const expected = crypto.createHmac('sha256', hmacKey).update(krAnswer).digest('hex');
-
     if (expected !== krHash) {
       console.error('⚠️ Firma HMAC inválida');
-      console.error('   Esperado:', expected);
-      console.error('   Recibido:', krHash);
       return;
     }
 
@@ -160,13 +152,12 @@ router.post('/izipay/exito', async (req, res) => {
       return;
     }
 
-    // Buscar datos del pedido en memoria temporal
     let datosPedido = null;
     for (const [tokenId, datos] of datosTemporales.entries()) {
       if (datos.orderId === orderId) {
         datosPedido = datos;
         datosTemporales.delete(tokenId);
-        console.log('✅ Datos del pedido encontrados para orderId:', orderId);
+        console.log('✅ Datos encontrados para orderId:', orderId);
         break;
       }
     }
@@ -176,8 +167,6 @@ router.post('/izipay/exito', async (req, res) => {
       console.log('📦 Tokens disponibles:', [...datosTemporales.keys()]);
       return;
     }
-
-    console.log('📦 datosPedido:', JSON.stringify(datosPedido));
 
     const pago = answer.transactions?.[0];
 
@@ -190,6 +179,7 @@ router.post('/izipay/exito', async (req, res) => {
         datos_entrega:     datosPedido.datosEntrega,
         tipo_envio:        datosPedido.tipo_envio ?? 'Normal',
         cupon_usado:       datosPedido.codigoCupon ?? null,
+        itemsCarrito:      datosPedido.itemsCarrito ?? [],
         pago: {
           estado:            'aprobado',
           mp_payment_id:     pago?.uuid ?? orderId,
@@ -207,21 +197,17 @@ router.post('/izipay/exito', async (req, res) => {
     const fakeRes = {
       status: (code) => ({
         json: (data) => {
-          if (code >= 400) {
-            console.error(`❌ Error al crear pedido [${code}]:`, JSON.stringify(data));
-          } else {
-            console.log(`✅ Pedido creado [${code}]:`, JSON.stringify(data));
-          }
+          if (code >= 400) console.error(`❌ Error pedido [${code}]:`, JSON.stringify(data));
+          else console.log(`✅ Pedido creado [${code}]:`, JSON.stringify(data));
         },
       }),
-      json: (data) => console.log('✅ Pedido creado exitosamente:', JSON.stringify(data)),
+      json: (data) => console.log('✅ Pedido creado:', JSON.stringify(data)),
     };
 
     await orderController.crearPedido(fakeReq, fakeRes);
 
   } catch (e) {
-    console.error('🚨 Error procesando éxito Izipay:', e.message);
-    console.error('Stack:', e.stack);
+    console.error('🚨 Error en /izipay/exito:', e.message, e.stack);
   }
 });
 
@@ -230,9 +216,7 @@ router.post('/izipay/error', (req, res) => {
   console.log('❌ /izipay/error recibido');
   res.send(`
     <html>
-    <head>
-      <meta charset="UTF-8">
-    </head>
+    <head><meta charset="UTF-8"></head>
     <body style="text-align:center;font-family:Arial;padding:40px;background:#f5f5f5;">
       <div style="background:white;border-radius:16px;padding:40px;max-width:400px;margin:0 auto;">
         <h1 style="color:red;">❌ Pago rechazado</h1>

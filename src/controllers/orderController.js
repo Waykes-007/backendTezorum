@@ -1,12 +1,14 @@
 const supabase = require('../config/supabase');
 const { enviarTicketCompra, enviarCorreoVendedorConRotulo } = require('./emailController');
 
+// ── Generar código de pedido TZ-2026-000145 ──────────────────────────────────
 const generarCodigoPedido = (numeroPedido, fecha) => {
   const anio = new Date(fecha).getFullYear();
   const numero = String(numeroPedido).padStart(6, '0');
   return `TZ-${anio}-${numero}`;
 };
 
+// ── Generar letra del subpedido (1=A, 2=B, etc.) ────────────────────────────
 const letraSubpedido = (index) => String.fromCharCode(65 + index);
 
 const orderController = {
@@ -34,7 +36,6 @@ const orderController = {
       let itemsCarrito = itemsCarritoGuardados;
 
       if (!itemsCarrito || itemsCarrito.length === 0) {
-        console.log('🛒 Leyendo carrito para usuario:', usuario_id);
         const { data, error: errCart } = await supabase
           .from('carrito')
           .select('producto_id, cantidad, productos(id, nombre_producto, precio_normal, precio_oferta, tienda_id, tiendas(id, nombre_tienda, email))')
@@ -48,7 +49,7 @@ const orderController = {
         console.log(`✅ Usando ${itemsCarrito.length} items guardados del token`);
       }
 
-      // ── 2. Buscar ofertas flash activas ───────────────────────────────────
+      // ── 2. Buscar ofertas flash activas ──────────────────────────────────
       const productoIds = itemsCarrito.map(i => i.producto_id);
       const { data: ofertasActivas } = await supabase
         .from('ofertas_flash')
@@ -65,7 +66,7 @@ const orderController = {
         mapaOfertas[oferta.producto_id] = oferta;
       }
 
-      // ── 3. Calcular subtotal real ─────────────────────────────────────────
+      // ── 3. Calcular subtotal real ────────────────────────────────────────
       let subtotalCalculado = 0;
       for (const item of itemsCarrito) {
         const oferta = mapaOfertas[item.producto_id];
@@ -75,54 +76,55 @@ const orderController = {
         subtotalCalculado += precio * parseInt(item.cantidad);
       }
 
-      console.log(`💰 Subtotal calculado: ${subtotalCalculado} | Enviado: ${monto_subtotal}`);
-
-      // ── VALIDACIÓN FLEXIBLE: permite diferencia hasta el costo de envío ───
-      // El monto_subtotal puede ser igual al total si viene del webhook de Izipay
+      // Validación flexible: acepta si coincide con subtotal O con total
+      // (el webhook pasa monto_total como subtotal)
       const subtotalCliente = parseFloat(monto_subtotal);
       const montoTotal      = parseFloat(monto_total_pagar);
-      const diferenciaConSubtotal = Math.abs(subtotalCalculado - subtotalCliente);
-      const diferenciaConTotal    = Math.abs(subtotalCalculado - montoTotal);
-
-      if (diferenciaConSubtotal > 1 && diferenciaConTotal > 1) {
-        console.error(`❌ Monto no coincide: calculado=${subtotalCalculado} subtotal=${subtotalCliente} total=${montoTotal}`);
+      if (Math.abs(subtotalCalculado - subtotalCliente) > 1 &&
+          Math.abs(subtotalCalculado - montoTotal) > 1) {
         return res.status(400).json({
           error: 'El monto del pedido no coincide. Refresca el carrito e intenta de nuevo.',
         });
       }
 
-      // ── 4. Actualizar perfil del usuario ──────────────────────────────────
-      await supabase.from('usuarios').update({
-        nombre_completo:      datos_entrega.nombre,
-        dni_ruc:              datos_entrega.dni,
-        telefono:             datos_entrega.whatsapp,
-        direccion_referencia: datos_entrega.direccion,
-        distrito:             datos_entrega.distrito ?? null,
-      }).eq('id', usuario_id);
+      // ── 4. Actualizar perfil del usuario ─────────────────────────────────
+      await supabase
+        .from('usuarios')
+        .update({
+          nombre_completo:      datos_entrega.nombre,
+          dni_ruc:              datos_entrega.dni,
+          telefono:             datos_entrega.whatsapp,
+          direccion_referencia: datos_entrega.direccion,
+          distrito:             datos_entrega.distrito ?? null,
+        })
+        .eq('id', usuario_id);
 
-      // ── 5. Primera oferta válida ──────────────────────────────────────────
+      // ── 5. Primera oferta válida ─────────────────────────────────────────
       const primeraOferta = Object.values(mapaOfertas)[0] ?? null;
 
-      // ── 6. Obtener zona de Lima ───────────────────────────────────────────
+      // ── 6. Obtener zona de Lima ──────────────────────────────────────────
       let zonaEnvio = 'LIMA';
       if (datos_entrega.distrito_id) {
         const { data: zonaData } = await supabase
-          .from('zonas_lima').select('zona')
-          .eq('distrito_id', datos_entrega.distrito_id).single();
+          .from('zonas_lima')
+          .select('zona')
+          .eq('distrito_id', datos_entrega.distrito_id)
+          .single();
         if (zonaData) zonaEnvio = zonaData.zona;
       }
 
-      // ── 7. Obtener nombre del distrito ────────────────────────────────────
+      // ── 7. Obtener nombre del distrito ───────────────────────────────────
       let nombreDistrito = datos_entrega.distrito ?? '';
       if (datos_entrega.distrito_id) {
         const { data: distData } = await supabase
-          .from('distritos').select('distrito')
-          .eq('id', datos_entrega.distrito_id).single();
+          .from('distritos')
+          .select('distrito')
+          .eq('id', datos_entrega.distrito_id)
+          .single();
         if (distData) nombreDistrito = distData.distrito;
       }
 
-      // ── 8. Insertar pedido ────────────────────────────────────────────────
-      console.log('📝 Insertando pedido...');
+      // ── 8. Insertar pedido ───────────────────────────────────────────────
       const { data: pedidoInsertado, error: errOrder } = await supabase
         .from('pedidos')
         .insert([{
@@ -146,18 +148,20 @@ const orderController = {
           zona_envio:            zonaEnvio,
           codigo_pedido:         null,
         }])
-        .select().single();
+        .select()
+        .single();
 
       if (errOrder) throw errOrder;
-      console.log('✅ Pedido insertado:', pedidoInsertado.id);
 
-      // ── 9. Generar código de pedido ───────────────────────────────────────
+      // ── 9. Generar y guardar código de pedido ────────────────────────────
       const codigoPedido = generarCodigoPedido(pedidoInsertado.numero_pedido, pedidoInsertado.fecha_pedido);
-      await supabase.from('pedidos').update({ codigo_pedido: codigoPedido }).eq('id', pedidoInsertado.id);
+      await supabase
+        .from('pedidos')
+        .update({ codigo_pedido: codigoPedido })
+        .eq('id', pedidoInsertado.id);
       pedidoInsertado.codigo_pedido = codigoPedido;
-      console.log('📋 Código:', codigoPedido);
 
-      // ── 10. Insertar detalles ─────────────────────────────────────────────
+      // ── 10. Insertar detalle del pedido ──────────────────────────────────
       const detallesData = itemsCarrito.map(item => {
         const oferta = mapaOfertas[item.producto_id];
         const precioUsado = oferta
@@ -172,10 +176,13 @@ const orderController = {
         };
       });
 
-      const { error: errDetalle } = await supabase.from('detalle_pedidos').insert(detallesData);
+      const { error: errDetalle } = await supabase
+        .from('detalle_pedidos')
+        .insert(detallesData);
+
       if (errDetalle) throw errDetalle;
 
-      // ── 11. Descontar stock ───────────────────────────────────────────────
+      // ── 11. Descontar stock ──────────────────────────────────────────────
       for (const item of itemsCarrito) {
         await supabase.rpc('decrementar_stock', {
           p_producto_id: item.producto_id,
@@ -183,66 +190,75 @@ const orderController = {
         });
       }
 
-      // ── 12. Quemar cupón ──────────────────────────────────────────────────
+      // ── 12. Quemar cupón ─────────────────────────────────────────────────
       if (cupon_usado) {
         const { data: cuponData } = await supabase
-          .from('cupones').select('id, usos_actuales')
-          .eq('codigo', cupon_usado.trim().toUpperCase()).single();
+          .from('cupones')
+          .select('id, usos_actuales')
+          .eq('codigo', cupon_usado.trim().toUpperCase())
+          .single();
         if (cuponData) {
-          await supabase.from('cupones')
+          await supabase
+            .from('cupones')
             .update({ usos_actuales: cuponData.usos_actuales + 1 })
             .eq('id', cuponData.id);
         }
       }
 
-      // ── 13. Incrementar usos ofertas ──────────────────────────────────────
+      // ── 13. Incrementar usos ofertas ─────────────────────────────────────
       for (const oferta of Object.values(mapaOfertas)) {
         await supabase.rpc('incrementar_uso_oferta', { row_id: oferta.id });
       }
 
-      // ── 14. Limpiar carrito ───────────────────────────────────────────────
+      // ── 14. Limpiar carrito ──────────────────────────────────────────────
       await supabase.from('carrito').delete().eq('usuario_id', usuario_id);
-      console.log('🛒 Carrito limpiado');
 
-      // ── 15. Agrupar items por tienda ──────────────────────────────────────
+      // ── 15. Agrupar items por tienda ─────────────────────────────────────
       const itemsPorTienda = {};
       for (const item of itemsCarrito) {
         const tiendaId = item.productos?.tienda_id;
         const tienda   = item.productos?.tiendas;
-        if (!tiendaId) { console.warn(`⚠️ Producto ${item.producto_id} sin tienda_id`); continue; }
-        if (!itemsPorTienda[tiendaId]) itemsPorTienda[tiendaId] = { tienda, tiendaId, items: [] };
+        if (!tiendaId) continue;
+        if (!itemsPorTienda[tiendaId]) {
+          itemsPorTienda[tiendaId] = { tienda, tiendaId, items: [] };
+        }
         const oferta = mapaOfertas[item.producto_id];
         const precio = oferta
           ? parseFloat(oferta.precio_oferta)
           : parseFloat(item.productos?.precio_oferta || item.productos?.precio_normal || 0);
-        itemsPorTienda[tiendaId].items.push({ nombre: item.productos?.nombre_producto, cantidad: item.cantidad, precio });
+        itemsPorTienda[tiendaId].items.push({
+          nombre:   item.productos?.nombre_producto,
+          cantidad: item.cantidad,
+          precio,
+        });
       }
 
       const tiendasArray  = Object.values(itemsPorTienda);
       const totalPaquetes = tiendasArray.length;
-      console.log(`🏪 Tiendas: ${totalPaquetes}`);
 
-      // ── 16. Crear subpedidos + notificaciones + correos ───────────────────
+      // ── 16. Crear subpedidos + notificaciones + correos por tienda ───────
       for (let i = 0; i < tiendasArray.length; i++) {
         const { tienda, tiendaId, items } = tiendasArray[i];
         const letra         = letraSubpedido(i);
         const codigoSub     = `${codigoPedido}-${letra}`;
         const paqueteNumero = i + 1;
 
-        console.log(`📦 Creando subpedido ${codigoSub}`);
+        const { error: errSub } = await supabase
+          .from('subpedidos')
+          .insert([{
+            pedido_id:        pedidoInsertado.id,
+            tienda_id:        tiendaId,
+            codigo_subpedido: codigoSub,
+            letra,
+            paquete_numero:   paqueteNumero,
+            total_paquetes:   totalPaquetes,
+            estado:           'pendiente_entrega_almacen',
+          }]);
 
-        const { error: errSub } = await supabase.from('subpedidos').insert([{
-          pedido_id:        pedidoInsertado.id,
-          tienda_id:        tiendaId,
-          codigo_subpedido: codigoSub,
-          letra,
-          paquete_numero:   paqueteNumero,
-          total_paquetes:   totalPaquetes,
-          estado:           'pendiente_entrega_almacen',
-        }]);
-
-        if (errSub) { console.error(`❌ Error subpedido ${codigoSub}:`, errSub.message); continue; }
-        console.log(`✅ Subpedido creado: ${codigoSub}`);
+        if (errSub) {
+          console.error(`❌ Error subpedido ${codigoSub}:`, errSub.message);
+          continue;
+        }
 
         const itemsResumen = items.map(it => `${it.cantidad}x ${it.nombre}`).join(', ');
         await supabase.from('notificaciones').insert([{
@@ -251,77 +267,97 @@ const orderController = {
           titulo:    '🎉 ¡Vendiste!',
           mensaje:   `Nueva venta por S/ ${monto_total_pagar}. Productos: ${itemsResumen}`,
           datos: {
-            pedido_id: pedidoInsertado.id, codigo_pedido: codigoPedido,
-            codigo_subpedido: codigoSub, total: monto_total_pagar,
-            items: itemsResumen, direccion: datos_entrega.direccion,
-            whatsapp: datos_entrega.whatsapp, nombre: datos_entrega.nombre,
+            pedido_id:        pedidoInsertado.id,
+            codigo_pedido:    codigoPedido,
+            codigo_subpedido: codigoSub,
+            total:            monto_total_pagar,
+            items:            itemsResumen,
+            direccion:        datos_entrega.direccion,
+            whatsapp:         datos_entrega.whatsapp,
+            nombre:           datos_entrega.nombre,
           },
         }]);
 
         if (tienda?.email) {
           try {
             await enviarCorreoVendedorConRotulo({
-              tienda, pedido: pedidoInsertado, codigoPedido,
-              codigoSubpedido: codigoSub, paqueteNumero, totalPaquetes,
-              zona: zonaEnvio, distrito: nombreDistrito, items, datosEntrega: datos_entrega,
+              tienda,
+              pedido:          pedidoInsertado,
+              codigoPedido,
+              codigoSubpedido: codigoSub,
+              paqueteNumero,
+              totalPaquetes,
+              zona:            zonaEnvio,
+              distrito:        nombreDistrito,
+              items,
+              datosEntrega:    datos_entrega,
             });
-            console.log(`📧 Correo enviado a ${tienda.email}`);
           } catch (emailErr) {
             console.error(`⚠️ Error correo vendedor:`, emailErr.message);
           }
         }
       }
 
-      // ── 17. Registrar pago ────────────────────────────────────────────────
+      // ── 17. Registrar pago ───────────────────────────────────────────────
       if (pago) {
         await supabase.from('pagos').insert([{
-          pedido_id: pedidoInsertado.id, usuario_id,
-          estado: pago.estado ?? 'pendiente', monto: monto_total_pagar,
-          mp_payment_id: pago.mp_payment_id ?? null,
-          mp_preference_id: pago.mp_preference_id ?? null,
-          mp_status: pago.mp_status ?? null,
-          mp_status_detail: pago.mp_status_detail ?? null,
-          metodo_pago: pago.metodo_pago ?? null,
-          tipo_pago: pago.tipo_pago ?? null,
-          banco: pago.banco ?? null,
+          pedido_id:         pedidoInsertado.id,
+          usuario_id,
+          estado:            pago.estado ?? 'pendiente',
+          monto:             monto_total_pagar,
+          mp_payment_id:     pago.mp_payment_id ?? null,
+          mp_preference_id:  pago.mp_preference_id ?? null,
+          mp_status:         pago.mp_status ?? null,
+          mp_status_detail:  pago.mp_status_detail ?? null,
+          metodo_pago:       pago.metodo_pago ?? null,
+          tipo_pago:         pago.tipo_pago ?? null,
+          banco:             pago.banco ?? null,
           ultimos_4_digitos: pago.ultimos_4_digitos ?? null,
-          nombre_titular: pago.nombre_titular ?? null,
-          fecha_aprobacion: pago.estado === 'aprobado' ? new Date() : null,
+          nombre_titular:    pago.nombre_titular ?? null,
+          fecha_aprobacion:  pago.estado === 'aprobado' ? new Date() : null,
         }]);
       }
 
-      // ── 18. Ticket al cliente ─────────────────────────────────────────────
+      // ── 18. Ticket al cliente ────────────────────────────────────────────
       try {
         const { data: usuarioData } = await supabase
-          .from('usuarios').select('correo_electronico').eq('id', usuario_id).single();
+          .from('usuarios')
+          .select('correo_electronico')
+          .eq('id', usuario_id)
+          .single();
 
         await enviarTicketCompra({
           pedido: {
-            id: pedidoInsertado.id, numero: codigoPedido,
+            id:                pedidoInsertado.id,
+            numero:            codigoPedido,
             monto_total_pagar: pedidoInsertado.monto_total_pagar,
-            costo_envio: pedidoInsertado.costo_envio,
-            direccion_envio: datos_entrega.direccion,
+            costo_envio:       pedidoInsertado.costo_envio,
+            direccion_envio:   datos_entrega.direccion,
           },
           cliente: {
-            nombre: datos_entrega.nombre, correo: usuarioData?.correo_electronico,
-            whatsapp: datos_entrega.whatsapp, dni: datos_entrega.dni,
+            nombre:   datos_entrega.nombre,
+            correo:   usuarioData?.correo_electronico,
+            whatsapp: datos_entrega.whatsapp,
+            dni:      datos_entrega.dni,
           },
           items: detallesData.map(item => {
             const prod = itemsCarrito.find(i => i.producto_id === item.producto_id);
-            return { nombre: prod?.productos?.nombre_producto ?? 'Producto', cantidad: item.cantidad, precio: item.precio_unitario_historico };
+            return {
+              nombre:   prod?.productos?.nombre_producto ?? 'Producto',
+              cantidad: item.cantidad,
+              precio:   item.precio_unitario_historico,
+            };
           }),
           pago: pago ?? null,
         });
-        console.log('📧 Ticket enviado');
       } catch (ticketErr) {
         console.error('⚠️ Error ticket:', ticketErr.message);
       }
 
-      console.log('🎉 Pedido completado:', codigoPedido);
       return res.status(201).json({
-        message: 'Pedido registrado con éxito ✅',
+        message:  'Pedido registrado con éxito ✅',
         pedidoId: pedidoInsertado.id,
-        numero: codigoPedido,
+        numero:   codigoPedido,
       });
 
     } catch (e) {
@@ -334,7 +370,9 @@ const orderController = {
     const { userId } = req.params;
     try {
       const { data, error } = await supabase
-        .from('pedidos').select('*').eq('usuario_id', userId)
+        .from('pedidos')
+        .select('*')
+        .eq('usuario_id', userId)
         .order('fecha_pedido', { ascending: false });
       if (error) throw error;
       return res.status(200).json(data);
