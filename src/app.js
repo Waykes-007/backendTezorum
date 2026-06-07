@@ -16,6 +16,16 @@ app.use(cors()); // Permite conexiones desde el dispositivo móvil
 app.use(express.json()); // Permite recibir JSON en las peticiones
 app.use(express.urlencoded({ extended: true })); // ← agrega esto
 
+// DIAGNÓSTICO TEMPORAL
+app.use((req, res, next) => {
+  if (req.path.includes('izipay') || req.path.includes('exito')) {
+    console.log(`📨 ${req.method} ${req.path}`);
+    console.log('Content-Type:', req.headers['content-type']);
+    console.log('Body keys:', Object.keys(req.body ?? {}));
+  }
+  next();
+});
+
 // Rutas
 
 app.use('/api/admins', adminRoutes);
