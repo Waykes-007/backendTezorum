@@ -11,6 +11,7 @@ const letraSubpedido = (index) => String.fromCharCode(65 + index);
 
 const orderController = {
   async crearPedido(req, res) {
+    console.log('🔥 VERSION V5 ACTIVA 🔥'); // ← agrega esta línea
     console.log('📦 crearPedido iniciado');
 
     const {
