@@ -85,7 +85,6 @@ router.get('/izipay/pagar/:tokenId', (req, res) => {
 
 router.post('/izipay/exito', async (req, res) => {
   console.log('💳 /izipay/exito recibido');
-  console.log('Body keys:', Object.keys(req.body ?? {}));
 
   res.send(`
     <html>
@@ -141,8 +140,23 @@ router.post('/izipay/exito', async (req, res) => {
 
     if (!datosPedido) {
       console.error('❌ No se encontraron datos para orderId:', orderId);
-      console.log('📦 Tokens disponibles:', [...datosTemporales.keys()]);
       return;
+    }
+
+    // ── Leer carrito fresco de Supabase ──────────────────────────────────────
+    // Los items del token pueden estar vacíos si hubo algún problema al guardarlos
+    // Leemos el carrito directamente antes de que se limpie
+    let itemsCarrito = datosPedido.itemsCarrito ?? [];
+    console.log('📦 Items en token:', itemsCarrito.length);
+
+    if (itemsCarrito.length === 0) {
+      console.log('🛒 Token sin items, leyendo carrito fresco...');
+      const { data: carritoFresco } = await supabase
+        .from('carrito')
+        .select('producto_id, cantidad, productos(id, nombre_producto, precio_normal, precio_oferta, tienda_id, tiendas(id, nombre_tienda, email))')
+        .eq('usuario_id', datosPedido.usuario_id);
+      itemsCarrito = carritoFresco ?? [];
+      console.log('🛒 Carrito fresco:', itemsCarrito.length, 'items');
     }
 
     const pago = answer.transactions?.[0];
@@ -156,7 +170,7 @@ router.post('/izipay/exito', async (req, res) => {
         datos_entrega:     datosPedido.datosEntrega,
         tipo_envio:        datosPedido.tipo_envio ?? 'Normal',
         cupon_usado:       datosPedido.codigoCupon ?? null,
-        itemsCarrito:      datosPedido.itemsCarrito ?? [],
+        itemsCarrito,
         pago: {
           estado:            'aprobado',
           mp_payment_id:     pago?.uuid ?? orderId,
@@ -210,42 +224,9 @@ router.post('/izipay/error', (req, res) => {
 // ── Router general de Izipay DESPUÉS de los handlers específicos ──────────────
 router.use('/izipay', izipayRoutes);
 
-// ── ENDPOINT DE PRUEBA TEMPORAL ───────────────────────────────────────────────
+// ── ENDPOINT DE PRUEBA ────────────────────────────────────────────────────────
 router.post('/test-pedido', async (req, res) => {
-  try {
-    // Paso A: leer detalle_pedidos del último pedido
-    const { data: detallesPedido } = await supabase
-      .from('detalle_pedidos')
-      .select('producto_id, cantidad, precio_unitario_historico')
-      .eq('pedido_id', '1028c3dc-9862-4e1b-93ae-8fbf46b5ff46');
-
-    // Paso B: leer productos
-    const productosIds = (detallesPedido ?? []).map(d => d.producto_id);
-    const { data: productosData } = await supabase
-      .from('productos')
-      .select('id, nombre_producto, tienda_id')
-      .in('id', productosIds);
-
-    // Paso C: leer tiendas
-    const tiendaIds = [...new Set((productosData ?? []).map(p => p.tienda_id).filter(Boolean))];
-    const { data: tiendasData } = await supabase
-      .from('tiendas')
-      .select('id, nombre_tienda, email')
-      .in('id', tiendaIds);
-
-    res.json({
-      detallesPedido,
-      productosData,
-      tiendaIds,
-      tiendasData,
-    });
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
-});
-
-router.post('/test-pedido-vacio', async (req, res) => {
-  console.log('🧪 test-pedido-vacio llamado');
+  console.log('🧪 test-pedido llamado');
   const fakeReq = {
     body: {
       usuario_id:        '8488d77f-6f8d-4cd0-9170-b2fcd273210e',
@@ -262,9 +243,42 @@ router.post('/test-pedido-vacio', async (req, res) => {
         provincia_id:    '128',
         distrito_id:     '1298',
       },
-      tipo_envio:   'Normal',
-      cupon_usado:  null,
-      itemsCarrito: [], // ← vacío, simula el webhook real
+      tipo_envio:  'Normal',
+      cupon_usado: null,
+      itemsCarrito: [
+        {
+          producto_id: '2fe1d260-e059-4b72-a969-137f261b58e5',
+          cantidad: 1,
+          productos: {
+            id: '2fe1d260-e059-4b72-a969-137f261b58e5',
+            nombre_producto: 'TECLADO MECANICO AULA F75',
+            precio_normal: 250,
+            precio_oferta: 250,
+            tienda_id: 'ff5337f1-3566-4971-9cba-341102b59af6',
+            tiendas: {
+              id: 'ff5337f1-3566-4971-9cba-341102b59af6',
+              nombre_tienda: 'Importaciones JC',
+              email: 'jossheavenly@gmail.com',
+            }
+          }
+        },
+        {
+          producto_id: '1ac5bac2-9236-47e3-8253-ff46a8d655a2',
+          cantidad: 1,
+          productos: {
+            id: '1ac5bac2-9236-47e3-8253-ff46a8d655a2',
+            nombre_producto: 'Jordan 4 Retro Navy SB',
+            precio_normal: 550,
+            precio_oferta: 550,
+            tienda_id: '38d577ad-492d-4a40-99dd-8262008c9a50',
+            tiendas: {
+              id: '38d577ad-492d-4a40-99dd-8262008c9a50',
+              nombre_tienda: 'Tezórum Official',
+              email: 'josueacunak74e3@gmail.com',
+            }
+          }
+        }
+      ],
       pago: {
         estado:      'aprobado',
         mp_status:   'approved',
