@@ -22,11 +22,7 @@ router.post('/wallet/agregar',          walletController.reclamarPremioDiario);
 
 router.use('/pagos', pagoRoutes);
 
-// ── Izipay — handlers específicos PRIMERO ────────────────────────────────────
-// IMPORTANTE: deben ir ANTES de router.use('/izipay', izipayRoutes)
-// de lo contrario Express entra al router general y nunca llega aquí
-
-// ── Página de pago hosted ─────────────────────────────────────────────────────
+// ── Izipay handlers específicos PRIMERO ──────────────────────────────────────
 router.get('/izipay/pagar/:tokenId', (req, res) => {
   const { tokenId } = req.params;
   const formToken   = tokensTemporales.get(tokenId);
@@ -87,12 +83,10 @@ router.get('/izipay/pagar/:tokenId', (req, res) => {
 </html>`);
 });
 
-// ── Éxito del pago ────────────────────────────────────────────────────────────
 router.post('/izipay/exito', async (req, res) => {
   console.log('💳 /izipay/exito recibido');
   console.log('Body keys:', Object.keys(req.body ?? {}));
 
-  // Responder al WebView inmediatamente con deep link para Flutter
   res.send(`
     <html>
     <head><meta charset="UTF-8"></head>
@@ -110,14 +104,13 @@ router.post('/izipay/exito', async (req, res) => {
     </body>
     </html>`);
 
-  // Procesar pedido de forma asíncrona
   try {
     const krAnswer = req.body['kr-answer'];
     const krHash   = req.body['kr-hash'];
     const hmacKey  = process.env.IZIPAY_HMAC_TEST;
 
     if (!krAnswer || !krHash || !hmacKey) {
-      console.error('❌ Faltan parámetros HMAC:', { krAnswer: !!krAnswer, krHash: !!krHash, hmacKey: !!hmacKey });
+      console.error('❌ Faltan parámetros HMAC');
       return;
     }
 
@@ -195,7 +188,6 @@ router.post('/izipay/exito', async (req, res) => {
   }
 });
 
-// ── Error del pago ────────────────────────────────────────────────────────────
 router.post('/izipay/error', (req, res) => {
   console.log('❌ /izipay/error recibido');
   res.send(`
@@ -205,7 +197,6 @@ router.post('/izipay/error', (req, res) => {
       <div style="background:white;border-radius:16px;padding:40px;max-width:400px;margin:0 auto;">
         <h1 style="color:red;">❌ Pago rechazado</h1>
         <p style="color:#666;">No se pudo procesar tu pago.</p>
-        <p style="color:#666;">Puedes cerrar esta ventana e intentar de nuevo.</p>
       </div>
       <script>
         setTimeout(function() {
@@ -216,9 +207,79 @@ router.post('/izipay/error', (req, res) => {
     </html>`);
 });
 
-// ── Router general de Izipay (crear tokens, etc.) ─────────────────────────────
-// Va DESPUÉS de los handlers específicos
+// ── Router general de Izipay DESPUÉS de los handlers específicos ──────────────
 router.use('/izipay', izipayRoutes);
+
+// ── ENDPOINT DE PRUEBA TEMPORAL ───────────────────────────────────────────────
+router.post('/test-pedido', async (req, res) => {
+  console.log('🧪 test-pedido llamado');
+  const fakeReq = {
+    body: {
+      usuario_id:        '8488d77f-6f8d-4cd0-9170-b2fcd273210e',
+      monto_total_pagar: 800,
+      monto_subtotal:    800,
+      costo_envio:       0,
+      datos_entrega: {
+        nombre:          'Ivan Paredes',
+        dni:             '73555411',
+        whatsapp:        '902142390',
+        direccion:       'jr. jose galvez 366',
+        referencia:      'test',
+        departamento_id: '15',
+        provincia_id:    '128',
+        distrito_id:     '1298',
+      },
+      tipo_envio:  'Normal',
+      cupon_usado: null,
+      itemsCarrito: [
+        {
+          producto_id: '2fe1d260-e059-4b72-a969-137f261b58e5',
+          cantidad: 1,
+          productos: {
+            id: '2fe1d260-e059-4b72-a969-137f261b58e5',
+            nombre_producto: 'TECLADO MECANICO AULA F75',
+            precio_normal: 250,
+            precio_oferta: 250,
+            tienda_id: 'ff5337f1-3566-4971-9cba-341102b59af6',
+            tiendas: {
+              id: 'ff5337f1-3566-4971-9cba-341102b59af6',
+              nombre_tienda: 'Importaciones JC',
+              email: 'jossheavenly@gmail.com',
+            }
+          }
+        },
+        {
+          producto_id: '1ac5bac2-9236-47e3-8253-ff46a8d655a2',
+          cantidad: 1,
+          productos: {
+            id: '1ac5bac2-9236-47e3-8253-ff46a8d655a2',
+            nombre_producto: 'Jordan 4 Retro Navy SB',
+            precio_normal: 550,
+            precio_oferta: 550,
+            tienda_id: '38d577ad-492d-4a40-99dd-8262008c9a50',
+            tiendas: {
+              id: '38d577ad-492d-4a40-99dd-8262008c9a50',
+              nombre_tienda: 'Tezórum Official',
+              email: 'josueacunak74e3@gmail.com',
+            }
+          }
+        }
+      ],
+      pago: {
+        estado:      'aprobado',
+        mp_status:   'approved',
+        metodo_pago: 'card',
+      },
+    },
+  };
+
+  const fakeRes = {
+    status: (code) => ({ json: (data) => res.status(code).json(data) }),
+    json:   (data) => res.json(data),
+  };
+
+  await orderController.crearPedido(fakeReq, fakeRes);
+});
 
 // ── Resto de rutas ────────────────────────────────────────────────────────────
 router.post('/auth/validar-celular',            authController.validarCelular);
