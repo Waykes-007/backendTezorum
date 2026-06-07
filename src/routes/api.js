@@ -281,6 +281,43 @@ router.post('/test-pedido', async (req, res) => {
   await orderController.crearPedido(fakeReq, fakeRes);
 });
 
+router.post('/test-pedido-vacio', async (req, res) => {
+  console.log('🧪 test-pedido-vacio llamado');
+  const fakeReq = {
+    body: {
+      usuario_id:        '8488d77f-6f8d-4cd0-9170-b2fcd273210e',
+      monto_total_pagar: 800,
+      monto_subtotal:    800,
+      costo_envio:       0,
+      datos_entrega: {
+        nombre:          'Ivan Paredes',
+        dni:             '73555411',
+        whatsapp:        '902142390',
+        direccion:       'jr. jose galvez 366',
+        referencia:      'test',
+        departamento_id: '15',
+        provincia_id:    '128',
+        distrito_id:     '1298',
+      },
+      tipo_envio:   'Normal',
+      cupon_usado:  null,
+      itemsCarrito: [], // ← vacío, simula el webhook real
+      pago: {
+        estado:      'aprobado',
+        mp_status:   'approved',
+        metodo_pago: 'card',
+      },
+    },
+  };
+
+  const fakeRes = {
+    status: (code) => ({ json: (data) => res.status(code).json(data) }),
+    json:   (data) => res.json(data),
+  };
+
+  await orderController.crearPedido(fakeReq, fakeRes);
+});
+
 // ── Resto de rutas ────────────────────────────────────────────────────────────
 router.post('/auth/validar-celular',            authController.validarCelular);
 router.post('/carrito/agregar',                 cartController.agregarAlCarrito);
