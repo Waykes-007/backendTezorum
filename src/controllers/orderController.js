@@ -77,7 +77,6 @@ const orderController = {
 
       console.log(`💰 Subtotal calculado: ${subtotalCalculado} | Enviado: ${monto_subtotal}`);
 
-      // Validación flexible: acepta si coincide con subtotal O con total
       const subtotalCliente = parseFloat(monto_subtotal);
       const montoTotal      = parseFloat(monto_total_pagar);
       if (Math.abs(subtotalCalculado - subtotalCliente) > 1 &&
@@ -171,6 +170,7 @@ const orderController = {
 
       const { error: errDetalle } = await supabase.from('detalle_pedidos').insert(detallesData);
       if (errDetalle) throw errDetalle;
+      console.log('✅ Detalles insertados');
 
       // ── 11. Descontar stock ───────────────────────────────────────────────
       for (const item of itemsCarrito) {
@@ -201,37 +201,57 @@ const orderController = {
       await supabase.from('carrito').delete().eq('usuario_id', usuario_id);
       console.log('🛒 Carrito limpiado');
 
-      // ── 15. Leer detalles del pedido con tienda ───────────────────────────
-      // Leemos directamente de detalle_pedidos para garantizar datos completos
-      // independientemente de si el carrito está vacío o los items guardados
-      console.log('🏪 Leyendo detalles con tienda...');
-      const { data: detallesConTienda, error: errDetalles } = await supabase
+      // ── 15. Obtener detalles con tienda via SQL directo ───────────────────
+      // Usamos queries separadas para evitar problemas con joins de PostgREST
+      console.log('🏪 Agrupando por tienda...');
+
+      // Paso A: leer detalle_pedidos
+      const { data: detallesPedido } = await supabase
         .from('detalle_pedidos')
-        .select('producto_id, cantidad, precio_unitario_historico, productos(id, nombre_producto, tienda_id, tiendas(id, nombre_tienda, email))')
+        .select('producto_id, cantidad, precio_unitario_historico')
         .eq('pedido_id', pedidoInsertado.id);
 
-      if (errDetalles) {
-        console.error('❌ Error leyendo detalles con tienda:', errDetalles.message);
-      }
+      // Paso B: leer productos con tienda_id
+      const productosIds = (detallesPedido ?? []).map(d => d.producto_id);
+      const { data: productosData } = await supabase
+        .from('productos')
+        .select('id, nombre_producto, tienda_id')
+        .in('id', productosIds);
 
-      console.log(`✅ Detalles leídos: ${detallesConTienda?.length ?? 0} items`);
+      // Paso C: leer tiendas
+      const tiendaIds = [...new Set((productosData ?? []).map(p => p.tienda_id).filter(Boolean))];
+      const { data: tiendasData } = await supabase
+        .from('tiendas')
+        .select('id, nombre_tienda, email')
+        .in('id', tiendaIds);
 
-      // ── Agrupar por tienda ────────────────────────────────────────────────
+      // Mapas para lookup rápido
+      const mapaProductos = {};
+      for (const p of (productosData ?? [])) mapaProductos[p.id] = p;
+
+      const mapaTiendas = {};
+      for (const t of (tiendasData ?? [])) mapaTiendas[t.id] = t;
+
+      // Agrupar por tienda
       const itemsPorTienda = {};
-      for (const item of (detallesConTienda ?? [])) {
-        const tiendaId = item.productos?.tienda_id;
-        const tienda   = item.productos?.tiendas;
-        if (!tiendaId) {
-          console.warn(`⚠️ Producto ${item.producto_id} sin tienda_id`);
+      for (const detalle of (detallesPedido ?? [])) {
+        const producto  = mapaProductos[detalle.producto_id];
+        const tiendaId  = producto?.tienda_id;
+        const tienda    = mapaTiendas[tiendaId];
+
+        if (!tiendaId || !tienda) {
+          console.warn(`⚠️ Sin tienda para producto ${detalle.producto_id}`);
           continue;
         }
+
         if (!itemsPorTienda[tiendaId]) {
           itemsPorTienda[tiendaId] = { tienda, tiendaId, items: [] };
         }
+
         itemsPorTienda[tiendaId].items.push({
-          nombre:   item.productos?.nombre_producto,
-          cantidad: item.cantidad,
-          precio:   parseFloat(item.precio_unitario_historico),
+          nombre:   producto?.nombre_producto,
+          cantidad: detalle.cantidad,
+          precio:   parseFloat(detalle.precio_unitario_historico),
         });
       }
 
@@ -353,7 +373,7 @@ const orderController = {
           }),
           pago: pago ?? null,
         });
-        console.log('📧 Ticket enviado al cliente');
+        console.log('📧 Ticket enviado');
       } catch (ticketErr) {
         console.error('⚠️ Error ticket:', ticketErr.message);
       }
