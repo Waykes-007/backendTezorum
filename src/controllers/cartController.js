@@ -23,12 +23,13 @@ const cartController = {
   async obtenerCarrito(req, res) {
     const { userId } = req.params;
     try {
-      // 1. Traer items del carrito — incluir precio_flash
+      // 1. Traer items del carrito — incluir tienda_id y tiendas
       const { data, error } = await supabase
         .from('carrito')
         .select(`
           id,
           cantidad,
+          producto_id,
           productos (
             id,
             nombre_producto,
@@ -36,8 +37,11 @@ const cartController = {
             precio_oferta,
             precio_flash,
             imagenes,
+            tienda_id,
             tiendas (
-              nombre_tienda
+              id,
+              nombre_tienda,
+              email
             )
           )
         `)
@@ -74,44 +78,40 @@ const cartController = {
       // 4. Formatear con jerarquía de precios correcta:
       //    flash vigente > precio_oferta permanente > precio_normal
       const carritoFormateado = data.map(item => {
-        const prod        = item.productos;
+        const prod         = item.productos;
         const flashVigente = mapaFlash[prod?.id];
 
         let precioFinal;
         let tieneFlash = false;
 
         if (flashVigente !== undefined) {
-          // Hay oferta flash activa y vigente → usar precio flash
           precioFinal = flashVigente;
           tieneFlash  = true;
         } else if (prod?.precio_oferta != null) {
-          // Sin flash → usar precio_oferta permanente si existe
           precioFinal = parseFloat(prod.precio_oferta);
         } else {
-          // Sin ningún descuento → precio normal
           precioFinal = parseFloat(prod?.precio_normal ?? 0);
         }
 
         return {
-          id:       item.id,
-          cantidad: item.cantidad,
+          id:          item.id,
+          cantidad:    item.cantidad,
+          producto_id: item.producto_id ?? prod?.id, // ← campo raíz para el orderController
           productos: {
             ...prod,
-            precio_final:       precioFinal,   // precio a cobrar
+            precio_final:       precioFinal,
             tiene_oferta_flash: tieneFlash,
-            nombre_tienda: prod?.tiendas?.nombre_tienda || 'Importaciones JC',
+            // tienda_id y tiendas ya vienen en ...prod gracias al select
           },
         };
       });
 
-      console.log('🛒 Carrito formateado:', JSON.stringify(carritoFormateado, null, 2));
       res.status(200).json(carritoFormateado);
     } catch (e) {
       console.error('Error en obtenerCarrito:', e.message);
       res.status(500).json({ error: e.message });
     }
   },
-  
 
   // ── Eliminar producto del carrito ──────────────────────────
   async eliminarDelCarrito(req, res) {
