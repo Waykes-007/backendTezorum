@@ -20,30 +20,13 @@ router.post('/auth/completar-registro', authController.completarRegistro);
 router.post('/pedidos/crear',           orderController.crearPedido);
 router.post('/wallet/agregar',          walletController.reclamarPremioDiario);
 
-router.use('/pagos',   pagoRoutes);
-router.use('/izipay',  izipayRoutes);
+router.use('/pagos', pagoRoutes);
 
-router.post('/auth/validar-celular',            authController.validarCelular);
-router.post('/carrito/agregar',                 cartController.agregarAlCarrito);
-router.post('/cupones/validar',                 couponController.validarCupon);
-router.post('/resenas',                         resenaController.crearResena);
-router.get ('/resenas/:productoId',             resenaController.obtenerResenas);
-router.get ('/promociones',                     shopController.getPromociones);
-router.get ('/productos/:id',                   shopController.getProductoPorId);
-router.get ('/cupones/disponibles',             couponController.listarCuponesDisponibles);
-router.get ('/auth/perfil/:id',                 authController.obtenerPerfil);
-router.get ('/favoritos/:userId',               favoritosController.obtener);
-router.get ('/tiendas/:id',                     shopController.getTienda);
-router.post('/favoritos',                       favoritosController.agregar);
-router.delete('/favoritos/:userId/:productoId', favoritosController.eliminar);
-router.delete('/carrito/:userId/:productoId',   cartController.eliminarDelCarrito);
-router.delete('/resenas/:productoId/:userId',   resenaController.eliminarResena);
-router.get ('/carrito/:userId',                 cartController.obtenerCarrito);
-router.get ('/pedidos/usuario/:userId',         orderController.obtenerPedidosPorUsuario);
-router.get ('/wallet/estado/:userId',           walletController.obtenerEstadoBilletera);
-router.get ('/productos',                       shopController.obtenerProductos);
+// ── Izipay — handlers específicos PRIMERO ────────────────────────────────────
+// IMPORTANTE: deben ir ANTES de router.use('/izipay', izipayRoutes)
+// de lo contrario Express entra al router general y nunca llega aquí
 
-// ── Izipay — página de pago hosted ──────────────────────────────────────────
+// ── Página de pago hosted ─────────────────────────────────────────────────────
 router.get('/izipay/pagar/:tokenId', (req, res) => {
   const { tokenId } = req.params;
   const formToken   = tokensTemporales.get(tokenId);
@@ -104,11 +87,12 @@ router.get('/izipay/pagar/:tokenId', (req, res) => {
 </html>`);
 });
 
-// ── Izipay — éxito del pago ──────────────────────────────────────────────────
+// ── Éxito del pago ────────────────────────────────────────────────────────────
 router.post('/izipay/exito', async (req, res) => {
   console.log('💳 /izipay/exito recibido');
+  console.log('Body keys:', Object.keys(req.body ?? {}));
 
-  // Responder al WebView con HTML + JS que notifica a Flutter via deep link
+  // Responder al WebView inmediatamente con deep link para Flutter
   res.send(`
     <html>
     <head><meta charset="UTF-8"></head>
@@ -133,7 +117,7 @@ router.post('/izipay/exito', async (req, res) => {
     const hmacKey  = process.env.IZIPAY_HMAC_TEST;
 
     if (!krAnswer || !krHash || !hmacKey) {
-      console.error('❌ Faltan parámetros HMAC');
+      console.error('❌ Faltan parámetros HMAC:', { krAnswer: !!krAnswer, krHash: !!krHash, hmacKey: !!hmacKey });
       return;
     }
 
@@ -211,7 +195,7 @@ router.post('/izipay/exito', async (req, res) => {
   }
 });
 
-// ── Izipay — error del pago ───────────────────────────────────────────────────
+// ── Error del pago ────────────────────────────────────────────────────────────
 router.post('/izipay/error', (req, res) => {
   console.log('❌ /izipay/error recibido');
   res.send(`
@@ -231,6 +215,31 @@ router.post('/izipay/error', (req, res) => {
     </body>
     </html>`);
 });
+
+// ── Router general de Izipay (crear tokens, etc.) ─────────────────────────────
+// Va DESPUÉS de los handlers específicos
+router.use('/izipay', izipayRoutes);
+
+// ── Resto de rutas ────────────────────────────────────────────────────────────
+router.post('/auth/validar-celular',            authController.validarCelular);
+router.post('/carrito/agregar',                 cartController.agregarAlCarrito);
+router.post('/cupones/validar',                 couponController.validarCupon);
+router.post('/resenas',                         resenaController.crearResena);
+router.get ('/resenas/:productoId',             resenaController.obtenerResenas);
+router.get ('/promociones',                     shopController.getPromociones);
+router.get ('/productos/:id',                   shopController.getProductoPorId);
+router.get ('/cupones/disponibles',             couponController.listarCuponesDisponibles);
+router.get ('/auth/perfil/:id',                 authController.obtenerPerfil);
+router.get ('/favoritos/:userId',               favoritosController.obtener);
+router.get ('/tiendas/:id',                     shopController.getTienda);
+router.post('/favoritos',                       favoritosController.agregar);
+router.delete('/favoritos/:userId/:productoId', favoritosController.eliminar);
+router.delete('/carrito/:userId/:productoId',   cartController.eliminarDelCarrito);
+router.delete('/resenas/:productoId/:userId',   resenaController.eliminarResena);
+router.get ('/carrito/:userId',                 cartController.obtenerCarrito);
+router.get ('/pedidos/usuario/:userId',         orderController.obtenerPedidosPorUsuario);
+router.get ('/wallet/estado/:userId',           walletController.obtenerEstadoBilletera);
+router.get ('/productos',                       shopController.obtenerProductos);
 
 // ── Check DB ──────────────────────────────────────────────────────────────────
 router.get('/check-db', async (req, res) => {
