@@ -83,9 +83,13 @@ router.get('/izipay/pagar/:tokenId', (req, res) => {
 </html>`);
 });
 
+// ── Éxito del pago ────────────────────────────────────────────────────────────
 router.post('/izipay/exito', async (req, res) => {
   console.log('💳 /izipay/exito recibido');
+  console.log('Body keys:', Object.keys(req.body ?? {}));
 
+  // Responder con HTML simple — sin JS de redirección
+  // Flutter detecta esta página via onPageFinished
   res.send(`
     <html>
     <head><meta charset="UTF-8"></head>
@@ -95,14 +99,10 @@ router.post('/izipay/exito', async (req, res) => {
         <p style="color:#666;">Tu pedido ha sido registrado correctamente.</p>
         <p style="color:#666;">Recibirás un correo con los detalles.</p>
       </div>
-      <script>
-        setTimeout(function() {
-          window.location.href = 'tezorum://pago-exitoso';
-        }, 1500);
-      </script>
     </body>
     </html>`);
 
+  // Procesar pedido de forma asíncrona
   try {
     const krAnswer = req.body['kr-answer'];
     const krHash   = req.body['kr-hash'];
@@ -140,12 +140,11 @@ router.post('/izipay/exito', async (req, res) => {
 
     if (!datosPedido) {
       console.error('❌ No se encontraron datos para orderId:', orderId);
+      console.log('📦 Tokens disponibles:', [...datosTemporales.keys()]);
       return;
     }
 
-    // ── Leer carrito fresco de Supabase ──────────────────────────────────────
-    // Los items del token pueden estar vacíos si hubo algún problema al guardarlos
-    // Leemos el carrito directamente antes de que se limpie
+    // Si el token no tiene items, leer carrito fresco
     let itemsCarrito = datosPedido.itemsCarrito ?? [];
     console.log('📦 Items en token:', itemsCarrito.length);
 
@@ -202,6 +201,7 @@ router.post('/izipay/exito', async (req, res) => {
   }
 });
 
+// ── Error del pago ────────────────────────────────────────────────────────────
 router.post('/izipay/error', (req, res) => {
   console.log('❌ /izipay/error recibido');
   res.send(`
@@ -211,12 +211,8 @@ router.post('/izipay/error', (req, res) => {
       <div style="background:white;border-radius:16px;padding:40px;max-width:400px;margin:0 auto;">
         <h1 style="color:red;">❌ Pago rechazado</h1>
         <p style="color:#666;">No se pudo procesar tu pago.</p>
+        <p style="color:#666;">Puedes cerrar esta ventana e intentar de nuevo.</p>
       </div>
-      <script>
-        setTimeout(function() {
-          window.location.href = 'tezorum://pago-fallido';
-        }, 1500);
-      </script>
     </body>
     </html>`);
 });
