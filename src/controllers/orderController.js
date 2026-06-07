@@ -1,19 +1,17 @@
 const supabase = require('../config/supabase');
 const { enviarTicketCompra, enviarCorreoVendedorConRotulo } = require('./emailController');
 
-// ── Generar código de pedido TZ-2026-000145 ──────────────────────────────────
 const generarCodigoPedido = (numeroPedido, fecha) => {
-  const anio = new Date(fecha).getFullYear();
+  const anio   = new Date(fecha).getFullYear();
   const numero = String(numeroPedido).padStart(6, '0');
   return `TZ-${anio}-${numero}`;
 };
 
-// ── Generar letra del subpedido (1=A, 2=B, etc.) ────────────────────────────
 const letraSubpedido = (index) => String.fromCharCode(65 + index);
 
 const orderController = {
   async crearPedido(req, res) {
-    console.log('📦 Body recibido:', JSON.stringify(req.body, null, 2));
+    console.log('📦 crearPedido iniciado');
 
     const {
       usuario_id,
@@ -32,10 +30,11 @@ const orderController = {
         return res.status(400).json({ error: 'Falta la dirección de entrega' });
       }
 
-      // ── 1. Usar items guardados o leer del carrito ────────────────────────
+      // ── 1. Usar items guardados o leer del carrito ─────────────────────────
       let itemsCarrito = itemsCarritoGuardados;
 
       if (!itemsCarrito || itemsCarrito.length === 0) {
+        console.log('🛒 Leyendo carrito para usuario:', usuario_id);
         const { data, error: errCart } = await supabase
           .from('carrito')
           .select('producto_id, cantidad, productos(id, nombre_producto, precio_normal, precio_oferta, tienda_id, tiendas(id, nombre_tienda, email))')
@@ -49,7 +48,7 @@ const orderController = {
         console.log(`✅ Usando ${itemsCarrito.length} items guardados del token`);
       }
 
-      // ── 2. Buscar ofertas flash activas ──────────────────────────────────
+      // ── 2. Buscar ofertas flash activas ───────────────────────────────────
       const productoIds = itemsCarrito.map(i => i.producto_id);
       const { data: ofertasActivas } = await supabase
         .from('ofertas_flash')
@@ -66,7 +65,7 @@ const orderController = {
         mapaOfertas[oferta.producto_id] = oferta;
       }
 
-      // ── 3. Calcular subtotal real ────────────────────────────────────────
+      // ── 3. Calcular subtotal real ─────────────────────────────────────────
       let subtotalCalculado = 0;
       for (const item of itemsCarrito) {
         const oferta = mapaOfertas[item.producto_id];
@@ -76,55 +75,51 @@ const orderController = {
         subtotalCalculado += precio * parseInt(item.cantidad);
       }
 
+      console.log(`💰 Subtotal calculado: ${subtotalCalculado} | Enviado: ${monto_subtotal}`);
+
       // Validación flexible: acepta si coincide con subtotal O con total
-      // (el webhook pasa monto_total como subtotal)
       const subtotalCliente = parseFloat(monto_subtotal);
       const montoTotal      = parseFloat(monto_total_pagar);
       if (Math.abs(subtotalCalculado - subtotalCliente) > 1 &&
           Math.abs(subtotalCalculado - montoTotal) > 1) {
+        console.error(`❌ Monto no coincide: calculado=${subtotalCalculado} subtotal=${subtotalCliente} total=${montoTotal}`);
         return res.status(400).json({
           error: 'El monto del pedido no coincide. Refresca el carrito e intenta de nuevo.',
         });
       }
 
-      // ── 4. Actualizar perfil del usuario ─────────────────────────────────
-      await supabase
-        .from('usuarios')
-        .update({
-          nombre_completo:      datos_entrega.nombre,
-          dni_ruc:              datos_entrega.dni,
-          telefono:             datos_entrega.whatsapp,
-          direccion_referencia: datos_entrega.direccion,
-          distrito:             datos_entrega.distrito ?? null,
-        })
-        .eq('id', usuario_id);
+      // ── 4. Actualizar perfil del usuario ──────────────────────────────────
+      await supabase.from('usuarios').update({
+        nombre_completo:      datos_entrega.nombre,
+        dni_ruc:              datos_entrega.dni,
+        telefono:             datos_entrega.whatsapp,
+        direccion_referencia: datos_entrega.direccion,
+        distrito:             datos_entrega.distrito ?? null,
+      }).eq('id', usuario_id);
 
-      // ── 5. Primera oferta válida ─────────────────────────────────────────
+      // ── 5. Primera oferta válida ──────────────────────────────────────────
       const primeraOferta = Object.values(mapaOfertas)[0] ?? null;
 
-      // ── 6. Obtener zona de Lima ──────────────────────────────────────────
+      // ── 6. Obtener zona de Lima ───────────────────────────────────────────
       let zonaEnvio = 'LIMA';
       if (datos_entrega.distrito_id) {
         const { data: zonaData } = await supabase
-          .from('zonas_lima')
-          .select('zona')
-          .eq('distrito_id', datos_entrega.distrito_id)
-          .single();
+          .from('zonas_lima').select('zona')
+          .eq('distrito_id', datos_entrega.distrito_id).single();
         if (zonaData) zonaEnvio = zonaData.zona;
       }
 
-      // ── 7. Obtener nombre del distrito ───────────────────────────────────
+      // ── 7. Obtener nombre del distrito ────────────────────────────────────
       let nombreDistrito = datos_entrega.distrito ?? '';
       if (datos_entrega.distrito_id) {
         const { data: distData } = await supabase
-          .from('distritos')
-          .select('distrito')
-          .eq('id', datos_entrega.distrito_id)
-          .single();
+          .from('distritos').select('distrito')
+          .eq('id', datos_entrega.distrito_id).single();
         if (distData) nombreDistrito = distData.distrito;
       }
 
-      // ── 8. Insertar pedido ───────────────────────────────────────────────
+      // ── 8. Insertar pedido ────────────────────────────────────────────────
+      console.log('📝 Insertando pedido...');
       const { data: pedidoInsertado, error: errOrder } = await supabase
         .from('pedidos')
         .insert([{
@@ -148,20 +143,18 @@ const orderController = {
           zona_envio:            zonaEnvio,
           codigo_pedido:         null,
         }])
-        .select()
-        .single();
+        .select().single();
 
       if (errOrder) throw errOrder;
+      console.log('✅ Pedido insertado:', pedidoInsertado.id);
 
-      // ── 9. Generar y guardar código de pedido ────────────────────────────
+      // ── 9. Generar código de pedido ───────────────────────────────────────
       const codigoPedido = generarCodigoPedido(pedidoInsertado.numero_pedido, pedidoInsertado.fecha_pedido);
-      await supabase
-        .from('pedidos')
-        .update({ codigo_pedido: codigoPedido })
-        .eq('id', pedidoInsertado.id);
+      await supabase.from('pedidos').update({ codigo_pedido: codigoPedido }).eq('id', pedidoInsertado.id);
       pedidoInsertado.codigo_pedido = codigoPedido;
+      console.log('📋 Código:', codigoPedido);
 
-      // ── 10. Insertar detalle del pedido ──────────────────────────────────
+      // ── 10. Insertar detalles ─────────────────────────────────────────────
       const detallesData = itemsCarrito.map(item => {
         const oferta = mapaOfertas[item.producto_id];
         const precioUsado = oferta
@@ -176,13 +169,10 @@ const orderController = {
         };
       });
 
-      const { error: errDetalle } = await supabase
-        .from('detalle_pedidos')
-        .insert(detallesData);
-
+      const { error: errDetalle } = await supabase.from('detalle_pedidos').insert(detallesData);
       if (errDetalle) throw errDetalle;
 
-      // ── 11. Descontar stock ──────────────────────────────────────────────
+      // ── 11. Descontar stock ───────────────────────────────────────────────
       for (const item of itemsCarrito) {
         await supabase.rpc('decrementar_stock', {
           p_producto_id: item.producto_id,
@@ -190,75 +180,89 @@ const orderController = {
         });
       }
 
-      // ── 12. Quemar cupón ─────────────────────────────────────────────────
+      // ── 12. Quemar cupón ──────────────────────────────────────────────────
       if (cupon_usado) {
         const { data: cuponData } = await supabase
-          .from('cupones')
-          .select('id, usos_actuales')
-          .eq('codigo', cupon_usado.trim().toUpperCase())
-          .single();
+          .from('cupones').select('id, usos_actuales')
+          .eq('codigo', cupon_usado.trim().toUpperCase()).single();
         if (cuponData) {
-          await supabase
-            .from('cupones')
+          await supabase.from('cupones')
             .update({ usos_actuales: cuponData.usos_actuales + 1 })
             .eq('id', cuponData.id);
         }
       }
 
-      // ── 13. Incrementar usos ofertas ─────────────────────────────────────
+      // ── 13. Incrementar usos ofertas ──────────────────────────────────────
       for (const oferta of Object.values(mapaOfertas)) {
         await supabase.rpc('incrementar_uso_oferta', { row_id: oferta.id });
       }
 
-      // ── 14. Limpiar carrito ──────────────────────────────────────────────
+      // ── 14. Limpiar carrito ───────────────────────────────────────────────
       await supabase.from('carrito').delete().eq('usuario_id', usuario_id);
+      console.log('🛒 Carrito limpiado');
 
-      // ── 15. Agrupar items por tienda ─────────────────────────────────────
+      // ── 15. Leer detalles del pedido con tienda ───────────────────────────
+      // Leemos directamente de detalle_pedidos para garantizar datos completos
+      // independientemente de si el carrito está vacío o los items guardados
+      console.log('🏪 Leyendo detalles con tienda...');
+      const { data: detallesConTienda, error: errDetalles } = await supabase
+        .from('detalle_pedidos')
+        .select('producto_id, cantidad, precio_unitario_historico, productos(id, nombre_producto, tienda_id, tiendas(id, nombre_tienda, email))')
+        .eq('pedido_id', pedidoInsertado.id);
+
+      if (errDetalles) {
+        console.error('❌ Error leyendo detalles con tienda:', errDetalles.message);
+      }
+
+      console.log(`✅ Detalles leídos: ${detallesConTienda?.length ?? 0} items`);
+
+      // ── Agrupar por tienda ────────────────────────────────────────────────
       const itemsPorTienda = {};
-      for (const item of itemsCarrito) {
+      for (const item of (detallesConTienda ?? [])) {
         const tiendaId = item.productos?.tienda_id;
         const tienda   = item.productos?.tiendas;
-        if (!tiendaId) continue;
+        if (!tiendaId) {
+          console.warn(`⚠️ Producto ${item.producto_id} sin tienda_id`);
+          continue;
+        }
         if (!itemsPorTienda[tiendaId]) {
           itemsPorTienda[tiendaId] = { tienda, tiendaId, items: [] };
         }
-        const oferta = mapaOfertas[item.producto_id];
-        const precio = oferta
-          ? parseFloat(oferta.precio_oferta)
-          : parseFloat(item.productos?.precio_oferta || item.productos?.precio_normal || 0);
         itemsPorTienda[tiendaId].items.push({
           nombre:   item.productos?.nombre_producto,
           cantidad: item.cantidad,
-          precio,
+          precio:   parseFloat(item.precio_unitario_historico),
         });
       }
 
       const tiendasArray  = Object.values(itemsPorTienda);
       const totalPaquetes = tiendasArray.length;
+      console.log(`🏪 Tiendas encontradas: ${totalPaquetes}`);
 
-      // ── 16. Crear subpedidos + notificaciones + correos por tienda ───────
+      // ── 16. Crear subpedidos + notificaciones + correos ───────────────────
       for (let i = 0; i < tiendasArray.length; i++) {
         const { tienda, tiendaId, items } = tiendasArray[i];
         const letra         = letraSubpedido(i);
         const codigoSub     = `${codigoPedido}-${letra}`;
         const paqueteNumero = i + 1;
 
-        const { error: errSub } = await supabase
-          .from('subpedidos')
-          .insert([{
-            pedido_id:        pedidoInsertado.id,
-            tienda_id:        tiendaId,
-            codigo_subpedido: codigoSub,
-            letra,
-            paquete_numero:   paqueteNumero,
-            total_paquetes:   totalPaquetes,
-            estado:           'pendiente_entrega_almacen',
-          }]);
+        console.log(`📦 Creando subpedido ${codigoSub} para tienda ${tiendaId}`);
+
+        const { error: errSub } = await supabase.from('subpedidos').insert([{
+          pedido_id:        pedidoInsertado.id,
+          tienda_id:        tiendaId,
+          codigo_subpedido: codigoSub,
+          letra,
+          paquete_numero:   paqueteNumero,
+          total_paquetes:   totalPaquetes,
+          estado:           'pendiente_entrega_almacen',
+        }]);
 
         if (errSub) {
           console.error(`❌ Error subpedido ${codigoSub}:`, errSub.message);
           continue;
         }
+        console.log(`✅ Subpedido creado: ${codigoSub}`);
 
         const itemsResumen = items.map(it => `${it.cantidad}x ${it.nombre}`).join(', ');
         await supabase.from('notificaciones').insert([{
@@ -292,13 +296,14 @@ const orderController = {
               items,
               datosEntrega:    datos_entrega,
             });
+            console.log(`📧 Correo enviado a ${tienda.email}`);
           } catch (emailErr) {
             console.error(`⚠️ Error correo vendedor:`, emailErr.message);
           }
         }
       }
 
-      // ── 17. Registrar pago ───────────────────────────────────────────────
+      // ── 17. Registrar pago ────────────────────────────────────────────────
       if (pago) {
         await supabase.from('pagos').insert([{
           pedido_id:         pedidoInsertado.id,
@@ -318,13 +323,11 @@ const orderController = {
         }]);
       }
 
-      // ── 18. Ticket al cliente ────────────────────────────────────────────
+      // ── 18. Ticket al cliente ─────────────────────────────────────────────
       try {
         const { data: usuarioData } = await supabase
-          .from('usuarios')
-          .select('correo_electronico')
-          .eq('id', usuario_id)
-          .single();
+          .from('usuarios').select('correo_electronico')
+          .eq('id', usuario_id).single();
 
         await enviarTicketCompra({
           pedido: {
@@ -350,10 +353,12 @@ const orderController = {
           }),
           pago: pago ?? null,
         });
+        console.log('📧 Ticket enviado al cliente');
       } catch (ticketErr) {
         console.error('⚠️ Error ticket:', ticketErr.message);
       }
 
+      console.log('🎉 Pedido completado:', codigoPedido);
       return res.status(201).json({
         message:  'Pedido registrado con éxito ✅',
         pedidoId: pedidoInsertado.id,
@@ -370,8 +375,7 @@ const orderController = {
     const { userId } = req.params;
     try {
       const { data, error } = await supabase
-        .from('pedidos')
-        .select('*')
+        .from('pedidos').select('*')
         .eq('usuario_id', userId)
         .order('fecha_pedido', { ascending: false });
       if (error) throw error;
