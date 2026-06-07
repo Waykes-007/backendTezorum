@@ -1,19 +1,17 @@
 const supabase = require('../config/supabase');
 const { enviarTicketCompra, enviarCorreoVendedorConRotulo } = require('./emailController');
 
-// ── Generar código de pedido TZ-2026-000145 ───────────────────────────────────
 const generarCodigoPedido = (numeroPedido, fecha) => {
   const anio   = new Date(fecha).getFullYear();
   const numero = String(numeroPedido).padStart(6, '0');
   return `TZ-${anio}-${numero}`;
 };
 
-// ── Generar letra del subpedido (1=A, 2=B, etc.) ─────────────────────────────
 const letraSubpedido = (index) => String.fromCharCode(65 + index);
 
 const orderController = {
   async crearPedido(req, res) {
-    console.log('📦 Body recibido:', JSON.stringify(req.body, null, 2));
+    console.log('📦 crearPedido iniciado');
 
     const {
       usuario_id,
@@ -24,32 +22,37 @@ const orderController = {
       tipo_envio,
       cupon_usado,
       pago = null,
+      itemsCarrito: itemsCarritoGuardados = null, // ← viene del datosTemporales
     } = req.body;
 
     try {
       if (!datos_entrega.direccion) {
-        console.error('❌ Falta dirección en datos_entrega:', JSON.stringify(datos_entrega));
+        console.error('❌ Falta dirección:', JSON.stringify(datos_entrega));
         return res.status(400).json({ error: 'Falta la dirección de entrega' });
       }
 
-      // ── 1. Leer carrito ───────────────────────────────────────────────────
-      console.log('🛒 Leyendo carrito para usuario:', usuario_id);
-      const { data: itemsCarrito, error: errCart } = await supabase
-        .from('carrito')
-        .select('producto_id, cantidad, productos(id, nombre_producto, precio_normal, precio_oferta, tienda_id, tiendas(id, nombre_tienda, email))')
-        .eq('usuario_id', usuario_id);
+      // ── 1. Usar items guardados o leer del carrito ─────────────────────────
+      let itemsCarrito = itemsCarritoGuardados;
 
-      if (errCart) {
-        console.error('❌ Error al leer carrito:', errCart.message);
-        throw new Error('Error al leer carrito: ' + errCart.message);
+      if (!itemsCarrito || itemsCarrito.length === 0) {
+        console.log('🛒 Items no guardados, leyendo carrito para usuario:', usuario_id);
+        const { data, error: errCart } = await supabase
+          .from('carrito')
+          .select('producto_id, cantidad, productos(id, nombre_producto, precio_normal, precio_oferta, tienda_id, tiendas(id, nombre_tienda, email))')
+          .eq('usuario_id', usuario_id);
+
+        if (errCart) {
+          console.error('❌ Error al leer carrito:', errCart.message);
+          throw new Error('Error al leer carrito: ' + errCart.message);
+        }
+        if (!data?.length) {
+          console.error('❌ Carrito vacío para usuario:', usuario_id);
+          throw new Error('Carrito vacío o error al validar');
+        }
+        itemsCarrito = data;
+      } else {
+        console.log(`✅ Usando ${itemsCarrito.length} items guardados del token`);
       }
-
-      if (!itemsCarrito?.length) {
-        console.error('❌ Carrito vacío para usuario:', usuario_id);
-        throw new Error('Carrito vacío o error al validar');
-      }
-
-      console.log(`✅ Carrito leído: ${itemsCarrito.length} items`);
 
       // ── 2. Buscar ofertas flash activas ───────────────────────────────────
       const productoIds = itemsCarrito.map(i => i.producto_id);
@@ -74,7 +77,7 @@ const orderController = {
         const oferta = mapaOfertas[item.producto_id];
         const precio = oferta
           ? parseFloat(oferta.precio_oferta)
-          : parseFloat(item.productos.precio_oferta || item.productos.precio_normal);
+          : parseFloat(item.productos?.precio_oferta || item.productos?.precio_normal || 0);
         subtotalCalculado += precio * parseInt(item.cantidad);
       }
 
@@ -89,16 +92,13 @@ const orderController = {
       }
 
       // ── 4. Actualizar perfil del usuario ──────────────────────────────────
-      await supabase
-        .from('usuarios')
-        .update({
-          nombre_completo:      datos_entrega.nombre,
-          dni_ruc:              datos_entrega.dni,
-          telefono:             datos_entrega.whatsapp,
-          direccion_referencia: datos_entrega.direccion,
-          distrito:             datos_entrega.distrito ?? null,
-        })
-        .eq('id', usuario_id);
+      await supabase.from('usuarios').update({
+        nombre_completo:      datos_entrega.nombre,
+        dni_ruc:              datos_entrega.dni,
+        telefono:             datos_entrega.whatsapp,
+        direccion_referencia: datos_entrega.direccion,
+        distrito:             datos_entrega.distrito ?? null,
+      }).eq('id', usuario_id);
 
       // ── 5. Primera oferta válida ──────────────────────────────────────────
       const primeraOferta = Object.values(mapaOfertas)[0] ?? null;
@@ -107,10 +107,8 @@ const orderController = {
       let zonaEnvio = 'LIMA';
       if (datos_entrega.distrito_id) {
         const { data: zonaData } = await supabase
-          .from('zonas_lima')
-          .select('zona')
-          .eq('distrito_id', datos_entrega.distrito_id)
-          .single();
+          .from('zonas_lima').select('zona')
+          .eq('distrito_id', datos_entrega.distrito_id).single();
         if (zonaData) zonaEnvio = zonaData.zona;
       }
 
@@ -118,10 +116,8 @@ const orderController = {
       let nombreDistrito = datos_entrega.distrito ?? '';
       if (datos_entrega.distrito_id) {
         const { data: distData } = await supabase
-          .from('distritos')
-          .select('distrito')
-          .eq('id', datos_entrega.distrito_id)
-          .single();
+          .from('distritos').select('distrito')
+          .eq('id', datos_entrega.distrito_id).single();
         if (distData) nombreDistrito = distData.distrito;
       }
 
@@ -150,32 +146,26 @@ const orderController = {
           zona_envio:            zonaEnvio,
           codigo_pedido:         null,
         }])
-        .select()
-        .single();
+        .select().single();
 
       if (errOrder) {
         console.error('❌ Error al insertar pedido:', errOrder.message);
         throw errOrder;
       }
-
       console.log('✅ Pedido insertado:', pedidoInsertado.id);
 
-      // ── 9. Generar y guardar código de pedido ─────────────────────────────
+      // ── 9. Generar código de pedido ───────────────────────────────────────
       const codigoPedido = generarCodigoPedido(pedidoInsertado.numero_pedido, pedidoInsertado.fecha_pedido);
-      await supabase
-        .from('pedidos')
-        .update({ codigo_pedido: codigoPedido })
-        .eq('id', pedidoInsertado.id);
+      await supabase.from('pedidos').update({ codigo_pedido: codigoPedido }).eq('id', pedidoInsertado.id);
       pedidoInsertado.codigo_pedido = codigoPedido;
-
       console.log('📋 Código de pedido:', codigoPedido);
 
-      // ── 10. Insertar detalle del pedido ───────────────────────────────────
+      // ── 10. Insertar detalles ─────────────────────────────────────────────
       const detallesData = itemsCarrito.map(item => {
         const oferta = mapaOfertas[item.producto_id];
         const precioUsado = oferta
           ? parseFloat(oferta.precio_oferta)
-          : parseFloat(item.productos.precio_oferta || item.productos.precio_normal);
+          : parseFloat(item.productos?.precio_oferta || item.productos?.precio_normal || 0);
         return {
           pedido_id:                 pedidoInsertado.id,
           producto_id:               item.producto_id,
@@ -185,10 +175,7 @@ const orderController = {
         };
       });
 
-      const { error: errDetalle } = await supabase
-        .from('detalle_pedidos')
-        .insert(detallesData);
-
+      const { error: errDetalle } = await supabase.from('detalle_pedidos').insert(detallesData);
       if (errDetalle) {
         console.error('❌ Error al insertar detalles:', errDetalle.message);
         throw errDetalle;
@@ -205,13 +192,10 @@ const orderController = {
       // ── 12. Quemar cupón ──────────────────────────────────────────────────
       if (cupon_usado) {
         const { data: cuponData } = await supabase
-          .from('cupones')
-          .select('id, usos_actuales')
-          .eq('codigo', cupon_usado.trim().toUpperCase())
-          .single();
+          .from('cupones').select('id, usos_actuales')
+          .eq('codigo', cupon_usado.trim().toUpperCase()).single();
         if (cuponData) {
-          await supabase
-            .from('cupones')
+          await supabase.from('cupones')
             .update({ usos_actuales: cuponData.usos_actuales + 1 })
             .eq('id', cuponData.id);
         }
@@ -229,25 +213,21 @@ const orderController = {
       // ── 15. Agrupar items por tienda ──────────────────────────────────────
       const itemsPorTienda = {};
       for (const item of itemsCarrito) {
-        const tiendaId = item.productos.tienda_id;
-        const tienda   = item.productos.tiendas;
-
+        const tiendaId = item.productos?.tienda_id;
+        const tienda   = item.productos?.tiendas;
         if (!tiendaId) {
-          console.warn(`⚠️ Producto ${item.producto_id} no tiene tienda_id`);
+          console.warn(`⚠️ Producto ${item.producto_id} sin tienda_id`);
           continue;
         }
-
         if (!itemsPorTienda[tiendaId]) {
           itemsPorTienda[tiendaId] = { tienda, tiendaId, items: [] };
         }
-
         const oferta = mapaOfertas[item.producto_id];
         const precio = oferta
           ? parseFloat(oferta.precio_oferta)
-          : parseFloat(item.productos.precio_oferta || item.productos.precio_normal);
-
+          : parseFloat(item.productos?.precio_oferta || item.productos?.precio_normal || 0);
         itemsPorTienda[tiendaId].items.push({
-          nombre:   item.productos.nombre_producto,
+          nombre:   item.productos?.nombre_producto,
           cantidad: item.cantidad,
           precio,
         });
@@ -255,14 +235,9 @@ const orderController = {
 
       const tiendasArray  = Object.values(itemsPorTienda);
       const totalPaquetes = tiendasArray.length;
-
       console.log(`🏪 Tiendas encontradas: ${totalPaquetes}`);
 
-      if (totalPaquetes === 0) {
-        console.warn('⚠️ No se encontraron tiendas para crear subpedidos');
-      }
-
-      // ── 16. Crear subpedidos + notificaciones + correos por tienda ────────
+      // ── 16. Crear subpedidos + notificaciones + correos ───────────────────
       for (let i = 0; i < tiendasArray.length; i++) {
         const { tienda, tiendaId, items } = tiendasArray[i];
         const letra         = letraSubpedido(i);
@@ -271,26 +246,20 @@ const orderController = {
 
         console.log(`📦 Creando subpedido ${codigoSub} para tienda ${tiendaId}`);
 
-        // Insertar subpedido
-        const { data: subpedido, error: errSub } = await supabase
-          .from('subpedidos')
-          .insert([{
-            pedido_id:        pedidoInsertado.id,
-            tienda_id:        tiendaId,
-            codigo_subpedido: codigoSub,
-            letra,
-            paquete_numero:   paqueteNumero,
-            total_paquetes:   totalPaquetes,
-            estado:           'pendiente_entrega_almacen',
-          }])
-          .select()
-          .single();
+        const { error: errSub } = await supabase.from('subpedidos').insert([{
+          pedido_id:        pedidoInsertado.id,
+          tienda_id:        tiendaId,
+          codigo_subpedido: codigoSub,
+          letra,
+          paquete_numero:   paqueteNumero,
+          total_paquetes:   totalPaquetes,
+          estado:           'pendiente_entrega_almacen',
+        }]);
 
         if (errSub) {
           console.error(`❌ Error al crear subpedido ${codigoSub}:`, errSub.message);
           continue;
         }
-
         console.log(`✅ Subpedido creado: ${codigoSub}`);
 
         // Notificación al vendedor
@@ -329,8 +298,7 @@ const orderController = {
             });
             console.log(`📧 Correo enviado a ${tienda.email}`);
           } catch (emailErr) {
-            console.error(`⚠️ Error al enviar correo a ${tienda.email}:`, emailErr.message);
-            // No lanzar error — el pedido ya fue creado
+            console.error(`⚠️ Error correo vendedor:`, emailErr.message);
           }
         }
       }
@@ -353,20 +321,14 @@ const orderController = {
           nombre_titular:    pago.nombre_titular ?? null,
           fecha_aprobacion:  pago.estado === 'aprobado' ? new Date() : null,
         }]);
-
-        if (errPago) {
-          console.error('⚠️ Error al registrar pago:', errPago.message);
-          // No lanzar error — el pedido ya fue creado
-        }
+        if (errPago) console.error('⚠️ Error al registrar pago:', errPago.message);
       }
 
       // ── 18. Ticket al cliente ─────────────────────────────────────────────
       try {
         const { data: usuarioData } = await supabase
-          .from('usuarios')
-          .select('correo_electronico')
-          .eq('id', usuario_id)
-          .single();
+          .from('usuarios').select('correo_electronico')
+          .eq('id', usuario_id).single();
 
         await enviarTicketCompra({
           pedido: {
@@ -392,15 +354,12 @@ const orderController = {
           }),
           pago: pago ?? null,
         });
-
         console.log('📧 Ticket enviado al cliente');
       } catch (ticketErr) {
         console.error('⚠️ Error al enviar ticket:', ticketErr.message);
-        // No lanzar error — el pedido ya fue creado
       }
 
       console.log('🎉 Pedido completado:', codigoPedido);
-
       return res.status(201).json({
         message:  'Pedido registrado con éxito ✅',
         pedidoId: pedidoInsertado.id,
@@ -417,8 +376,7 @@ const orderController = {
     const { userId } = req.params;
     try {
       const { data, error } = await supabase
-        .from('pedidos')
-        .select('*')
+        .from('pedidos').select('*')
         .eq('usuario_id', userId)
         .order('fecha_pedido', { ascending: false });
       if (error) throw error;

@@ -1,6 +1,7 @@
 const axios  = require('axios');
 const crypto = require('crypto');
 const orderController = require('./orderController');
+const supabase = require('../config/supabase');
 
 const IZIPAY_USERNAME = process.env.IZIPAY_USERNAME;
 const IZIPAY_PASSWORD = process.env.IZIPAY_PASSWORD_TEST;
@@ -13,6 +14,19 @@ const crearFormToken = async (req, res) => {
   try {
     const { total, orderId, cliente } = req.body;
     const credentials = Buffer.from(`${IZIPAY_USERNAME}:${IZIPAY_PASSWORD}`).toString('base64');
+
+    // ── Leer carrito AHORA antes de que el usuario pague ─────────────────────
+    // Lo guardamos en datosTemporales para no depender del carrito al recibir el webhook
+    console.log('🛒 Leyendo carrito para token:', cliente.userId);
+    const { data: itemsCarrito, error: errCart } = await supabase
+      .from('carrito')
+      .select('producto_id, cantidad, productos(id, nombre_producto, precio_normal, precio_oferta, tienda_id, tiendas(id, nombre_tienda, email))')
+      .eq('usuario_id', cliente.userId);
+
+    if (errCart) {
+      console.error('❌ Error al leer carrito en crearFormToken:', errCart.message);
+    }
+    console.log(`✅ Carrito leído: ${itemsCarrito?.length ?? 0} items`);
 
     const response = await axios.post(
       `${IZIPAY_BASE_URL}/api-payment/V4/Charge/CreatePayment`,
@@ -37,11 +51,12 @@ const crearFormToken = async (req, res) => {
         usuario_id:    cliente.userId,
         datosEntrega:  cliente.datosEntrega ?? {},
         monto:         total,
-        subtotal:      total,         // ← subtotal real guardado
+        subtotal:      total,
         costo_envio:   cliente.costoEnvio ?? 0,
         codigoCupon:   cliente.codigoCupon ?? null,
         tipo_envio:    cliente.tipoEnvio ?? 'Normal',
         orderId:       orderId,
+        itemsCarrito:  itemsCarrito ?? [], // ← guardado para el webhook
       });
 
       setTimeout(() => {
@@ -64,6 +79,18 @@ const crearTokenYape = async (req, res) => {
   try {
     const { total, orderId, cliente } = req.body;
     const credentials = Buffer.from(`${IZIPAY_USERNAME}:${IZIPAY_PASSWORD}`).toString('base64');
+
+    // ── Leer carrito AHORA ────────────────────────────────────────────────────
+    console.log('🛒 Leyendo carrito para token Yape:', cliente.userId);
+    const { data: itemsCarrito, error: errCart } = await supabase
+      .from('carrito')
+      .select('producto_id, cantidad, productos(id, nombre_producto, precio_normal, precio_oferta, tienda_id, tiendas(id, nombre_tienda, email))')
+      .eq('usuario_id', cliente.userId);
+
+    if (errCart) {
+      console.error('❌ Error al leer carrito en crearTokenYape:', errCart.message);
+    }
+    console.log(`✅ Carrito leído: ${itemsCarrito?.length ?? 0} items`);
 
     const response = await axios.post(
       `${IZIPAY_BASE_URL}/api-payment/V4/Charge/CreatePayment`,
@@ -89,11 +116,12 @@ const crearTokenYape = async (req, res) => {
         usuario_id:    cliente.userId,
         datosEntrega:  cliente.datosEntrega ?? {},
         monto:         total,
-        subtotal:      total,         // ← subtotal real guardado
+        subtotal:      total,
         costo_envio:   cliente.costoEnvio ?? 0,
         codigoCupon:   cliente.codigoCupon ?? null,
         tipo_envio:    cliente.tipoEnvio ?? 'Normal',
         orderId:       orderId,
+        itemsCarrito:  itemsCarrito ?? [], // ← guardado para el webhook
       });
 
       setTimeout(() => {
@@ -145,11 +173,10 @@ const webhook = async (req, res) => {
 
       if (!datosPedido) {
         console.warn('⚠️ No se encontraron datos del pedido para orderId:', orderId);
-        console.log('📦 Tokens disponibles:', [...datosTemporales.keys()]);
         return res.json({ status: 'OK' });
       }
 
-      console.log('📦 Datos del pedido encontrados:', JSON.stringify(datosPedido));
+      console.log('📦 Datos del pedido encontrados');
 
       const fakeReq = {
         body: {
@@ -160,6 +187,7 @@ const webhook = async (req, res) => {
           datos_entrega:     datosPedido.datosEntrega,
           tipo_envio:        datosPedido.tipo_envio ?? 'Normal',
           cupon_usado:       datosPedido.codigoCupon ?? null,
+          itemsCarrito:      datosPedido.itemsCarrito ?? [],
           pago: {
             estado:            'aprobado',
             mp_payment_id:     pago.uuid,
@@ -174,7 +202,6 @@ const webhook = async (req, res) => {
         },
       };
 
-      // fakeRes con logs detallados para debugging
       const fakeRes = {
         status: (code) => ({
           json: (data) => {
