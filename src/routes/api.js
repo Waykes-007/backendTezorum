@@ -23,25 +23,25 @@ router.post('/wallet/agregar',          walletController.reclamarPremioDiario);
 router.use('/pagos',   pagoRoutes);
 router.use('/izipay',  izipayRoutes);
 
-router.post('/auth/validar-celular',          authController.validarCelular);
-router.post('/carrito/agregar',               cartController.agregarAlCarrito);
-router.post('/cupones/validar',               couponController.validarCupon);
-router.post('/resenas',                       resenaController.crearResena);
-router.get ('/resenas/:productoId',           resenaController.obtenerResenas);
-router.get ('/promociones',                   shopController.getPromociones);
-router.get ('/productos/:id',                 shopController.getProductoPorId);
-router.get ('/cupones/disponibles',           couponController.listarCuponesDisponibles);
-router.get ('/auth/perfil/:id',               authController.obtenerPerfil);
-router.get ('/favoritos/:userId',             favoritosController.obtener);
-router.get ('/tiendas/:id',                   shopController.getTienda);
-router.post('/favoritos',                     favoritosController.agregar);
+router.post('/auth/validar-celular',            authController.validarCelular);
+router.post('/carrito/agregar',                 cartController.agregarAlCarrito);
+router.post('/cupones/validar',                 couponController.validarCupon);
+router.post('/resenas',                         resenaController.crearResena);
+router.get ('/resenas/:productoId',             resenaController.obtenerResenas);
+router.get ('/promociones',                     shopController.getPromociones);
+router.get ('/productos/:id',                   shopController.getProductoPorId);
+router.get ('/cupones/disponibles',             couponController.listarCuponesDisponibles);
+router.get ('/auth/perfil/:id',                 authController.obtenerPerfil);
+router.get ('/favoritos/:userId',               favoritosController.obtener);
+router.get ('/tiendas/:id',                     shopController.getTienda);
+router.post('/favoritos',                       favoritosController.agregar);
 router.delete('/favoritos/:userId/:productoId', favoritosController.eliminar);
-router.delete('/carrito/:userId/:productoId', cartController.eliminarDelCarrito);
-router.delete('/resenas/:productoId/:userId', resenaController.eliminarResena);
-router.get ('/carrito/:userId',               cartController.obtenerCarrito);
-router.get ('/pedidos/usuario/:userId',       orderController.obtenerPedidosPorUsuario);
-router.get ('/wallet/estado/:userId',         walletController.obtenerEstadoBilletera);
-router.get ('/productos',                     shopController.obtenerProductos);
+router.delete('/carrito/:userId/:productoId',   cartController.eliminarDelCarrito);
+router.delete('/resenas/:productoId/:userId',   resenaController.eliminarResena);
+router.get ('/carrito/:userId',                 cartController.obtenerCarrito);
+router.get ('/pedidos/usuario/:userId',         orderController.obtenerPedidosPorUsuario);
+router.get ('/wallet/estado/:userId',           walletController.obtenerEstadoBilletera);
+router.get ('/productos',                       shopController.obtenerProductos);
 
 // ── Izipay — página de pago hosted ──────────────────────────────────────────
 router.get('/izipay/pagar/:tokenId', (req, res) => {
@@ -108,35 +108,44 @@ router.get('/izipay/pagar/:tokenId', (req, res) => {
 router.post('/izipay/exito', async (req, res) => {
   console.log('💳 /izipay/exito recibido');
 
-  // Responder a Izipay inmediatamente para evitar timeouts
-  // El pedido se crea de forma asíncrona después
+  // Responder inmediatamente con HTML que redirige a deep link de la app
+  // El JavaScript notifica a Flutter vía window.location.href
   res.send(`
     <html>
     <head>
       <meta charset="UTF-8">
-      <meta http-equiv="refresh" content="3;url=tezorum://pago-exitoso">
     </head>
     <body style="text-align:center;font-family:Arial;padding:40px;background:#f5f5f5;">
       <div style="background:white;border-radius:16px;padding:40px;max-width:400px;margin:0 auto;">
         <h1 style="color:#16a34a;">✅ ¡Pago exitoso!</h1>
         <p style="color:#666;">Tu pedido ha sido registrado correctamente.</p>
         <p style="color:#666;">Recibirás un correo con los detalles.</p>
-        <p style="color:#999;font-size:12px;">Puedes cerrar esta ventana y volver a la app.</p>
       </div>
+      <script>
+        // Redirigir al deep link para notificar a Flutter
+        setTimeout(function() {
+          window.location.href = 'tezorum://pago-exitoso';
+        }, 1500);
+      </script>
     </body>
     </html>`);
 
-  // Procesar pedido de forma asíncrona (no bloquea la respuesta)
+  // Procesar pedido de forma asíncrona (no bloquea la respuesta al WebView)
   try {
     const krAnswer = req.body['kr-answer'];
     const krHash   = req.body['kr-hash'];
     const hmacKey  = process.env.IZIPAY_HMAC_TEST;
 
+    if (!krAnswer || !krHash || !hmacKey) {
+      console.error('❌ Faltan parámetros en /izipay/exito');
+      return;
+    }
+
     console.log('🔐 Verificando firma HMAC...');
     const expected = crypto.createHmac('sha256', hmacKey).update(krAnswer).digest('hex');
 
     if (expected !== krHash) {
-      console.error('⚠️ Firma HMAC inválida en /izipay/exito');
+      console.error('⚠️ Firma HMAC inválida');
       console.error('   Esperado:', expected);
       console.error('   Recibido:', krHash);
       return;
@@ -176,7 +185,7 @@ router.post('/izipay/exito', async (req, res) => {
       body: {
         usuario_id:        datosPedido.usuario_id,
         monto_total_pagar: datosPedido.monto,
-        monto_subtotal:    datosPedido.subtotal ?? datosPedido.monto, // ← FIX
+        monto_subtotal:    datosPedido.subtotal ?? datosPedido.monto,
         costo_envio:       datosPedido.costo_envio ?? 0,
         datos_entrega:     datosPedido.datosEntrega,
         tipo_envio:        datosPedido.tipo_envio ?? 'Normal',
@@ -195,7 +204,6 @@ router.post('/izipay/exito', async (req, res) => {
       },
     };
 
-    // fakeRes con logs detallados
     const fakeRes = {
       status: (code) => ({
         json: (data) => {
@@ -222,13 +230,20 @@ router.post('/izipay/error', (req, res) => {
   console.log('❌ /izipay/error recibido');
   res.send(`
     <html>
-    <head><meta charset="UTF-8"></head>
+    <head>
+      <meta charset="UTF-8">
+    </head>
     <body style="text-align:center;font-family:Arial;padding:40px;background:#f5f5f5;">
       <div style="background:white;border-radius:16px;padding:40px;max-width:400px;margin:0 auto;">
         <h1 style="color:red;">❌ Pago rechazado</h1>
         <p style="color:#666;">No se pudo procesar tu pago.</p>
         <p style="color:#666;">Puedes cerrar esta ventana e intentar de nuevo.</p>
       </div>
+      <script>
+        setTimeout(function() {
+          window.location.href = 'tezorum://pago-fallido';
+        }, 1500);
+      </script>
     </body>
     </html>`);
 });
