@@ -291,6 +291,39 @@ router.post('/test-pedido', async (req, res) => {
   await orderController.crearPedido(fakeReq, fakeRes);
 });
 
+router.post('/test-paso15/:pedidoId', async (req, res) => {
+  const { pedidoId } = req.params;
+  
+  const { data: detallesPedido } = await supabase
+    .from('detalle_pedidos')
+    .select('producto_id, cantidad, precio_unitario_historico')
+    .eq('pedido_id', pedidoId);
+
+  const productosIds = (detallesPedido ?? []).map(d => d.producto_id);
+  
+  const { data: productosData, error: errProd } = await supabase
+    .from('productos')
+    .select('id, nombre_producto, tienda_id')
+    .in('id', productosIds);
+
+  const tiendaIds = [...new Set((productosData ?? []).map(p => p.tienda_id).filter(Boolean))];
+  
+  const { data: tiendasData, error: errTienda } = await supabase
+    .from('tiendas')
+    .select('id, nombre_tienda, email')
+    .in('id', tiendaIds);
+
+  res.json({
+    detallesPedido,
+    productosIds,
+    productosData,
+    errProd: errProd?.message,
+    tiendaIds,
+    tiendasData,
+    errTienda: errTienda?.message,
+  });
+});
+
 // ── Resto de rutas ────────────────────────────────────────────────────────────
 router.post('/auth/validar-celular',            authController.validarCelular);
 router.post('/carrito/agregar',                 cartController.agregarAlCarrito);
