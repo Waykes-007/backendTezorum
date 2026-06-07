@@ -324,6 +324,70 @@ router.post('/test-paso15/:pedidoId', async (req, res) => {
   });
 });
 
+router.post('/test-crear-subpedidos/:pedidoId', async (req, res) => {
+  const { pedidoId } = req.params;
+  
+  // Simular exactamente el paso 15-16 del orderController
+  const { data: pedido } = await supabase
+    .from('pedidos').select('*').eq('id', pedidoId).single();
+    
+  const { data: detallesPedido } = await supabase
+    .from('detalle_pedidos')
+    .select('producto_id, cantidad, precio_unitario_historico')
+    .eq('pedido_id', pedidoId);
+
+  const productosIds = (detallesPedido ?? []).map(d => d.producto_id);
+  const { data: productosData } = await supabase
+    .from('productos').select('id, nombre_producto, tienda_id').in('id', productosIds);
+
+  const tiendaIds = [...new Set((productosData ?? []).map(p => p.tienda_id).filter(Boolean))];
+  const { data: tiendasData } = await supabase
+    .from('tiendas').select('id, nombre_tienda, email').in('id', tiendaIds);
+
+  const mapaProductos = {};
+  for (const p of (productosData ?? [])) mapaProductos[p.id] = p;
+  const mapaTiendas = {};
+  for (const t of (tiendasData ?? [])) mapaTiendas[t.id] = t;
+
+  const itemsPorTienda = {};
+  for (const detalle of (detallesPedido ?? [])) {
+    const producto = mapaProductos[detalle.producto_id];
+    const tiendaId = producto?.tienda_id;
+    const tienda   = mapaTiendas[tiendaId];
+    if (!tiendaId || !tienda) continue;
+    if (!itemsPorTienda[tiendaId]) itemsPorTienda[tiendaId] = { tienda, tiendaId, items: [] };
+    itemsPorTienda[tiendaId].items.push({
+      nombre: producto?.nombre_producto,
+      cantidad: detalle.cantidad,
+      precio: parseFloat(detalle.precio_unitario_historico),
+    });
+  }
+
+  const tiendasArray = Object.values(itemsPorTienda);
+  const totalPaquetes = tiendasArray.length;
+  const resultados = [];
+
+  for (let i = 0; i < tiendasArray.length; i++) {
+    const { tienda, tiendaId } = tiendasArray[i];
+    const letra = String.fromCharCode(65 + i);
+    const codigoSub = `${pedido.codigo_pedido}-${letra}`;
+    
+    const { error: errSub } = await supabase.from('subpedidos').insert([{
+      pedido_id: pedidoId,
+      tienda_id: tiendaId,
+      codigo_subpedido: codigoSub,
+      letra,
+      paquete_numero: i + 1,
+      total_paquetes: totalPaquetes,
+      estado: 'pendiente_entrega_almacen',
+    }]);
+    
+    resultados.push({ codigoSub, error: errSub?.message ?? null });
+  }
+
+  res.json({ totalPaquetes, resultados });
+});
+
 // ── Resto de rutas ────────────────────────────────────────────────────────────
 router.post('/auth/validar-celular',            authController.validarCelular);
 router.post('/carrito/agregar',                 cartController.agregarAlCarrito);
