@@ -1,6 +1,5 @@
 const { createClient } = require('@supabase/supabase-js');
 
-// Cliente con service role para leer tabla admins sin RLS
 const supabaseAdmin = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_SERVICE_KEY
@@ -45,7 +44,7 @@ const authMiddleware = {
 
       req.adminId    = admin.id;
       req.adminEmail = admin.email;
-      req.adminRol   = admin.rol;
+      req.rol        = admin.rol;   // ← CORREGIDO: era req.adminRol
       next();
     } catch (err) {
       return res.status(401).json({ error: 'Token inválido' });
@@ -73,7 +72,7 @@ const authMiddleware = {
 
       req.adminId    = admin.id;
       req.adminEmail = admin.email;
-      req.adminRol   = admin.rol;
+      req.rol        = admin.rol;   // ← CORREGIDO: era req.adminRol
       next();
     } catch (err) {
       return res.status(401).json({ error: 'Token inválido' });
