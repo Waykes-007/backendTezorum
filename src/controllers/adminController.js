@@ -3,7 +3,6 @@ const { Resend } = require('resend');
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
-// ── Crear cliente Supabase con Service Role Key ───────────────────────────────
 const { createClient } = require('@supabase/supabase-js');
 const supabaseAdmin = createClient(
   process.env.SUPABASE_URL,
@@ -31,7 +30,7 @@ const adminController = {
   // ── Invitar nuevo admin ─────────────────────────────────────────────────────
   async invitarAdmin(req, res) {
     const { email, nombre, rol } = req.body;
-    const creadoPorId = req.adminId; // viene del middleware
+    const creadoPorId = req.adminId;
 
     if (!email || !nombre || !rol) {
       return res.status(400).json({ error: 'Email, nombre y rol son requeridos' });
@@ -41,7 +40,6 @@ const adminController = {
     }
 
     try {
-      // 1. Verificar que el email no esté ya registrado en la tabla admins
       const { data: existe } = await supabaseAdmin
         .from('admins')
         .select('id')
@@ -52,7 +50,6 @@ const adminController = {
         return res.status(400).json({ error: 'Ya existe un administrador con ese email' });
       }
 
-      // 2. Insertar en tabla admins PRIMERO (antes de crear en auth)
       const { error: insertError } = await supabaseAdmin
         .from('admins')
         .insert([{
@@ -64,27 +61,24 @@ const adminController = {
         }]);
       if (insertError) throw insertError;
 
-      // 3. Generar link de invitación con Supabase Auth (ahora el trigger ya encontrará al admin)
       const { data: linkData, error: linkError } = await supabaseAdmin.auth.admin.generateLink({
         type: 'invite',
         email,
         options: {
-          redirectTo: `${process.env.ADMIN_DASHBOARD_URL ?? 'http://localhost:5173'}/admin/set-password`,
+          redirectTo: `${process.env.ADMIN_DASHBOARD_URL ?? 'https://admin.waykes.com'}/admin/set-password`,
           data: { nombre, rol, es_admin: true },
         },
       });
       if (linkError) {
-        // Si falla el link, revertir el insert para no dejar datos huérfanos
         await supabaseAdmin.from('admins').delete().eq('email', email);
         throw linkError;
       }
 
-      // 4. Enviar correo de invitación con Resend
       const inviteUrl = linkData.properties?.action_link;
       await resend.emails.send({
-        from: 'Tezórum <onboarding@resend.dev>',
-        to: email,
-        subject: '🛡️ Invitación al Panel Administrativo — Tezórum',
+        from:    'Waykes <noreply@waykes.com>',
+        to:      email,
+        subject: '🛡️ Invitación al Panel Administrativo — Waykes',
         html: `
         <!DOCTYPE html>
         <html>
@@ -92,14 +86,14 @@ const adminController = {
         <body style="margin:0;padding:20px;background:#f1f5f9;font-family:Arial,sans-serif;">
           <div style="max-width:480px;margin:0 auto;background:white;border-radius:16px;overflow:hidden;box-shadow:0 4px 20px rgba(0,0,0,0.1);">
             <div style="background:linear-gradient(135deg,#1e1b4b,#4338ca);padding:32px;text-align:center;">
-              <h1 style="color:white;margin:0;font-size:24px;font-weight:900;">🛡️ TEZÓRUM ADMIN</h1>
+              <h1 style="color:white;margin:0;font-size:24px;font-weight:900;">🛡️ WAYKES ADMIN</h1>
               <p style="color:rgba(255,255,255,0.7);margin:8px 0 0;font-size:14px;">Panel de Control Administrativo</p>
             </div>
 
             <div style="padding:32px;">
               <p style="color:#334155;font-size:16px;margin:0 0 8px;">Hola, <strong>${nombre}</strong> 👋</p>
               <p style="color:#64748b;font-size:14px;line-height:1.6;margin:0 0 24px;">
-                Has sido invitado a unirte al panel administrativo de <strong>Tezórum</strong>
+                Has sido invitado a unirte al panel administrativo de <strong>Waykes</strong>
                 con el rol de <strong style="color:#4338ca;">${rol === 'super_admin' ? 'Super Administrador' : 'Administrador'}</strong>.
               </p>
 
@@ -126,7 +120,7 @@ const adminController = {
             </div>
 
             <div style="padding:16px 32px;background:#f8fafc;border-top:1px solid #e2e8f0;text-align:center;">
-              <p style="color:#94a3b8;font-size:12px;margin:0;">Tezórum · Sistema de Gestión Administrativo</p>
+              <p style="color:#94a3b8;font-size:12px;margin:0;">Waykes · Sistema de Gestión Administrativo</p>
             </div>
           </div>
         </body>
@@ -143,7 +137,7 @@ const adminController = {
     }
   },
 
-  // ── Activar admin (cuando acepta la invitación) ─────────────────────────────
+  // ── Activar admin ───────────────────────────────────────────────────────────
   async activarAdmin(req, res) {
     const { email } = req.body;
     if (!email) return res.status(400).json({ error: 'Email requerido' });
@@ -167,7 +161,6 @@ const adminController = {
     const { activo } = req.body;
 
     try {
-      // No permitir desactivar al propio super admin que hace la petición
       const { data: target } = await supabaseAdmin
         .from('admins').select('email, rol').eq('id', id).single();
 
@@ -198,14 +191,12 @@ const adminController = {
         return res.status(400).json({ error: 'No puedes eliminar tu propia cuenta' });
       }
 
-      // Eliminar de auth.users también
       const { data: authUser } = await supabaseAdmin.auth.admin.listUsers();
       const userToDelete = authUser?.users?.find(u => u.email === target.email);
       if (userToDelete) {
         await supabaseAdmin.auth.admin.deleteUser(userToDelete.id);
       }
 
-      // Eliminar de tabla admins
       const { error } = await supabaseAdmin.from('admins').delete().eq('id', id);
       if (error) throw error;
 
@@ -215,7 +206,7 @@ const adminController = {
     }
   },
 
-  // ── Verificar si un email es admin (usado en login del dashboard) ───────────
+  // ── Verificar si un email es admin ─────────────────────────────────────────
   async verificarAdmin(req, res) {
     const { email } = req.body;
     if (!email) return res.status(400).json({ error: 'Email requerido' });
