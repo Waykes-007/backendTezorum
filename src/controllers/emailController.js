@@ -33,7 +33,6 @@ const generarRotuloPDF = async ({
 }) => {
   return new Promise(async (resolve, reject) => {
     try {
-      // Generar código de barras
       const barcodeBuffer = await bwip.toBuffer({
         bcid:        'code128',
         text:        codigoSubpedido,
@@ -42,17 +41,11 @@ const generarRotuloPDF = async ({
         includetext: false,
       });
 
-      // Generar QR
       const qrBuffer = await QRCode.toBuffer(codigoSubpedido, {
         width: 100, margin: 1,
       });
 
-      // Crear PDF A5 (148mm x 210mm = 419 x 595 puntos)
-      const doc = new PDFDocument({
-        size: 'A5',
-        margin: 20,
-      });
-
+      const doc = new PDFDocument({ size: 'A5', margin: 20 });
       const chunks = [];
       doc.on('data', chunk => chunks.push(chunk));
       doc.on('end', () => resolve(Buffer.concat(chunks)));
@@ -60,48 +53,38 @@ const generarRotuloPDF = async ({
 
       const ancho = 419;
 
-      // ── Borde punteado ──
       doc.rect(10, 10, ancho - 20, 575).dash(4, { space: 4 }).stroke('#999');
       doc.undash();
 
-      // ── Nombre tienda (fondo amarillo) ──
       doc.rect(20, 20, ancho - 40, 28).fill('#FFD600');
       doc.fontSize(13).fillColor('#000').font('Helvetica-Bold')
         .text(nombreTienda, 25, 26, { width: ancho - 50 });
 
-      // ── Subpedido (fondo amarillo) ──
       doc.rect(20, 54, ancho - 40, 24).fill('#FFD600');
       doc.fontSize(11).fillColor('#000').font('Helvetica-Bold')
         .text(`Subpedido: ${codigoSubpedido}`, 25, 59, { width: ancho - 50 });
 
-      // ── Código de barras ──
       doc.image(barcodeBuffer, 20, 85, { width: ancho - 40, height: 60 });
 
-      // ── Número maestro de pedido y rastreo ──
       doc.fontSize(10).fillColor('#555').font('Helvetica')
         .text('Número de Pedido y rastreo', 20, 155, { align: 'center', width: ancho - 40 });
       doc.fontSize(22).fillColor('#000').font('Helvetica-Bold')
         .text(codigoPedido, 20, 170, { align: 'center', width: ancho - 40 });
 
-      // ── Zona ──
       doc.fontSize(16).fillColor('#000').font('Helvetica-Bold')
         .text(`ZONA: ${zona}`, 20, 210);
 
-      // ── Distrito + Paquete ──
       doc.fontSize(10).fillColor('#555').font('Helvetica')
         .text('Distrito:', 20, 240);
       doc.fontSize(14).fillColor('#000').font('Helvetica-Bold')
         .text(distrito, 20, 254);
 
-      // ── Paquete X/Y (fondo verde) ──
       doc.rect(20, 278, 100, 22).fill('#22c55e');
       doc.fontSize(12).fillColor('#fff').font('Helvetica-Bold')
         .text(`PAQUETE: ${paqueteNumero}/${totalPaquetes}`, 25, 283);
 
-      // ── Línea separadora ──
       doc.moveTo(20, 310).lineTo(ancho - 20, 310).stroke('#ddd');
 
-      // ── Datos del cliente ──
       doc.fontSize(9).fillColor('#000').font('Helvetica-Bold')
         .text(`Cliente: ${datosEntrega.nombre}`, 20, 318);
       doc.font('Helvetica')
@@ -109,7 +92,6 @@ const generarRotuloPDF = async ({
         .text(`Teléfono: ${datosEntrega.whatsapp}`, 20, 347)
         .text(`Referencia: ${datosEntrega.referencia ?? '-'}`, 20, 361);
 
-      // ── QR (esquina inferior derecha) ──
       doc.image(qrBuffer, ancho - 120, 310, { width: 90, height: 90 });
       doc.fontSize(7).fillColor('#555')
         .text('Control Interno', ancho - 120, 403, { width: 90, align: 'center' });
@@ -125,7 +107,7 @@ const generarRotuloPDF = async ({
 const enviarTicketCompra = async ({ pedido, cliente, items, pago }) => {
   try {
     const qrBuffer = await QRCode.toBuffer(
-      `https://backendtezorum.onrender.com/pedido/${pedido.id}`,
+      `https://waykes.com/pedido/${pedido.id}`,
       { width: 200, margin: 2 }
     );
     const fileName = `qr_${pedido.id}.png`;
@@ -190,11 +172,11 @@ const enviarTicketCompra = async ({ pedido, cliente, items, pago }) => {
     <body style="margin:0;padding:20px;background:#f5f5f5;font-family:Arial,sans-serif;">
       <div style="max-width:480px;margin:0 auto;background:white;border:2px dashed #ccc;border-radius:8px;overflow:hidden;">
         <div style="background:#6B21A8;padding:24px;text-align:center;">
-          <h1 style="color:white;margin:0;font-size:26px;font-weight:900;">¡Tezórum! 🛍️</h1>
+          <h1 style="color:white;margin:0;font-size:26px;font-weight:900;">¡Waykes! 🛍️</h1>
         </div>
         <div style="padding:24px;text-align:center;border-bottom:2px dashed #ddd;">
           <h2 style="color:#1a1a1a;margin:0;font-size:22px;font-weight:900;">
-            ¡${cliente.nombre}, tu compra fue<br/>exitosa!, Gracias por<br/>comprar en <em>Tezórum</em>
+            ¡${cliente.nombre}, tu compra fue<br/>exitosa!, Gracias por<br/>comprar en <em>Waykes</em>
           </h2>
         </div>
         <div style="padding:20px 24px;border-bottom:2px dashed #ddd;">
@@ -246,8 +228,8 @@ const enviarTicketCompra = async ({ pedido, cliente, items, pago }) => {
           <p style="margin:4px 0;font-size:14px;color:#444;">🪪 DNI: ${cliente.dni}</p>
         </div>
         <div style="padding:20px 24px;text-align:center;background:#faf5ff;">
-          <p style="margin:0;color:#6B21A8;font-size:13px;">¿Tienes alguna duda? Escríbenos por WhatsApp</p>
-          <p style="margin:8px 0 0;font-weight:bold;color:#6B21A8;">Tezórum 💜</p>
+          <p style="margin:0;color:#6B21A8;font-size:13px;">¿Tienes alguna duda? Escríbenos a soporte@waykes.com</p>
+          <p style="margin:8px 0 0;font-weight:bold;color:#6B21A8;">Waykes 💜</p>
         </div>
       </div>
     </body>
@@ -255,9 +237,9 @@ const enviarTicketCompra = async ({ pedido, cliente, items, pago }) => {
     `;
 
     await resend.emails.send({
-      from:    'Tezórum <onboarding@resend.dev>',
-      to:      'josueacuna380@gmail.com',
-      subject: `✅ ¡Tu pedido ${pedido.numero} fue confirmado! - Tezórum`,
+      from:    'Waykes <noreply@waykes.com>',
+      to:      cliente.correo,
+      subject: `✅ ¡Tu pedido ${pedido.numero} fue confirmado! - Waykes`,
       html,
     });
 
@@ -281,7 +263,6 @@ const enviarCorreoVendedorConRotulo = async ({
   datosEntrega,
 }) => {
   try {
-    // Generar PDF del rótulo
     const pdfBuffer = await generarRotuloPDF({
       nombreTienda:    tienda.nombre_tienda,
       codigoPedido,
@@ -378,9 +359,9 @@ const enviarCorreoVendedorConRotulo = async ({
         </div>
         <div style="padding:20px 24px;text-align:center;background:#6B21A8;">
           <p style="color:rgba(255,255,255,0.8);margin:0;font-size:13px;">
-            Ingresa a tu panel para ver el detalle del pedido
+            Ingresa a tu panel en vendedor.waykes.com para ver el detalle
           </p>
-          <p style="color:white;margin:8px 0 0;font-weight:bold;">Tezórum 💜</p>
+          <p style="color:white;margin:8px 0 0;font-weight:bold;">Waykes 💜</p>
         </div>
       </div>
     </body>
@@ -388,9 +369,9 @@ const enviarCorreoVendedorConRotulo = async ({
     `;
 
     await resend.emails.send({
-      from:    'Tezórum <onboarding@resend.dev>',
-      to:      'josueacuna380@gmail.com',
-      subject: `🎉 ¡Vendiste! ${codigoSubpedido} - Tezórum`,
+      from:    'Waykes <noreply@waykes.com>',
+      to:      tienda.email,
+      subject: `🎉 ¡Vendiste! ${codigoSubpedido} - Waykes`,
       html,
       attachments: [
         {
