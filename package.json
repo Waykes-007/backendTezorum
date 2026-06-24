@@ -22,6 +22,7 @@
     "express": "^5.2.1",
     "mercadopago": "^2.12.1",
     "native-dns": "^0.7.0",
+    "node-cron": "^4.5.0",
     "pdfkit": "^0.18.0",
     "qrcode": "^1.5.4",
     "resend": "^6.12.3"
