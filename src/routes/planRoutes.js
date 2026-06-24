@@ -1,7 +1,7 @@
 const express        = require('express')
 const router         = express.Router()
 const planController = require('../controllers/planController')
-const { verificarAdmin } = require('../middleware/authMiddleware')
+const { verificarAdmin } = require('../middlewares/authMiddleware')
 
 // Rutas protegidas — solo admin/super_admin
 router.get('/precios',              planController.obtenerPrecios)
