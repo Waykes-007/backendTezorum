@@ -5,6 +5,7 @@ const webhookRoutes = require('./routes/webhooks');
 const locationRoutes = require('./routes/locationRoutes');
 const flashRoutes = require('./routes/flashRoutes');
 const adminRoutes = require('./routes/adminRoutes');
+const planRoutes = require('./routes/planRoutes')
 
 
 
@@ -15,6 +16,7 @@ app.use(cors()); // Permite conexiones desde el dispositivo móvil
 
 app.use(express.json()); // Permite recibir JSON en las peticiones
 app.use(express.urlencoded({ extended: true })); // ← agrega esto
+app.use('/api/plan', planRoutes)
 
 // DIAGNÓSTICO TEMPORAL
 app.use((req, res, next) => {
