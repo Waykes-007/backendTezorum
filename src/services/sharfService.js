@@ -2,13 +2,21 @@
 const axios   = require('axios')
 const supabase = require('../config/supabase')
 
-const SHARF_BASE_URL = process.env.SHARF_BASE_URL      // https://scharff.azure-api.net/qa
-const SUB_KEY        = process.env.SHARF_SUBSCRIPTION_KEY
-const CLIENT_ID      = process.env.SHARF_CLIENT_ID
+const SHARF_BASE_URL      = process.env.SHARF_BASE_URL
+const SUB_KEY_SETTINGS   = process.env.SHARF_SUBSCRIPTION_KEY_SETTINGS
+const SUB_KEY_SHIPMENTS  = process.env.SHARF_SUBSCRIPTION_KEY_SHIPMENTS
+const CLIENT_ID           = process.env.SHARF_CLIENT_ID
 
-// Headers base para todas las peticiones a Sharf
+// Headers para API Settings (webhook, status)
+const sharfHeadersSettings = () => ({
+  'subscription-key': SUB_KEY_SETTINGS,
+  'client-id':        CLIENT_ID,
+  'Content-Type':     'application/json',
+})
+
+// Headers para API Shipments (crear envío, tracking)
 const sharfHeaders = () => ({
-  'subscription-key': SUB_KEY,
+  'subscription-key': SUB_KEY_SHIPMENTS,
   'client-id':        CLIENT_ID,
   'Content-Type':     'application/json',
 })
