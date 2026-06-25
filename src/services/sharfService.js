@@ -90,7 +90,7 @@ async function crearEnvioSharf({ pedido, subpedidos, datosEntrega, almacen }) {
     console.log(`✅ Sharf envío creado: ${trackingNumber}`)
     return { trackingNumber, trackingURL, orderNumber }
   } catch (err) {
-    console.error('❌ Sharf crearEnvio:', err.response?.data ?? err.message)
+    console.error('❌ Sharf crearEnvio:', JSON.stringify(err.response?.data ?? err.message))
     throw new Error(err.response?.data?.message ?? err.message)
   }
 }
