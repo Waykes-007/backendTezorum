@@ -35,7 +35,7 @@ const SHARF_ESTADO_MAP = {
 // ── 1. Crear envío en Sharf ───────────────────────────────────────────────────
 async function crearEnvioSharf({ pedido, subpedidos, datosEntrega, almacen }) {
   try {
-    const orderNumber = pedido.numero_pedido ?? pedido.id.slice(0, 25)
+    const orderNumber = String(pedido.numero_pedido ?? pedido.id).slice(0, 25)
 
     const body = {
       orderNumber,
