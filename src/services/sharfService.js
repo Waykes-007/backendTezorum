@@ -78,6 +78,8 @@ async function crearEnvioSharf({ pedido, subpedidos, datosEntrega, almacen }) {
       })),
     }
 
+    console.log('📦 Sharf body:', JSON.stringify(body, null, 2))
+
     const res = await axios.post(
       `${SHARF_BASE_URL}/shipments/v1/order`,
       body,
