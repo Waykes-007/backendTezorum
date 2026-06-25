@@ -94,7 +94,7 @@ router.delete('/:id', async (req, res) => {
     // Eliminar de auth.users via SQL con service role
     if (sub.user_id) {
       const { error: deleteAuthErr } = await supabaseAdmin
-        .rpc('delete_user_by_id', { user_id: sub.user_id })
+        .rpc('delete_user_by_id', { p_user_id: sub.user_id })
       if (deleteAuthErr) console.warn('⚠️ No se pudo eliminar de auth:', deleteAuthErr.message)
     }
 
