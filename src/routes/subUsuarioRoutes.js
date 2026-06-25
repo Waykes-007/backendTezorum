@@ -14,7 +14,6 @@ router.post('/crear', async (req, res) => {
   if (!token) return res.status(401).json({ error: 'No autorizado' })
 
   try {
-    // Verificar token del vendedor
     const { data: { user }, error: authErr } = await supabaseAdmin.auth.getUser(token)
     if (authErr || !user) return res.status(401).json({ error: 'Token inválido' })
 
@@ -23,36 +22,40 @@ router.post('/crear', async (req, res) => {
       return res.status(400).json({ error: 'Faltan campos requeridos' })
     }
 
-    // Verificar que la tienda pertenece al vendedor
     const { data: tienda, error: tiendaErr } = await supabaseAdmin
       .from('tiendas').select('id, plan').eq('id', tiendaId).eq('user_id', user.id).single()
     if (tiendaErr || !tienda) return res.status(403).json({ error: 'No tienes permiso sobre esta tienda' })
     if (tienda.plan !== 'oro') return res.status(403).json({ error: 'Solo el plan Oro puede agregar sub-usuarios' })
 
-    // Verificar límite de 3 sub-usuarios
     const { count } = await supabaseAdmin
       .from('sub_usuarios').select('*', { count: 'exact', head: true }).eq('tienda_id', tiendaId)
     if (count >= 3) return res.status(400).json({ error: 'Alcanzaste el límite de 3 colaboradores' })
 
-    // Crear usuario con signUp desde cliente temporal (no afecta sesión actual)
-    const supabaseTemp = createClient(
-      process.env.SUPABASE_URL,
-      process.env.SUPABASE_ANON_KEY
-    )
-    const { data: authData, error: createErr } = await supabaseTemp.auth.signUp({
-      email,
-      password,
-    })
-    if (createErr) {
-      if (createErr.message.toLowerCase().includes('already registered')) {
-        return res.status(400).json({ error: 'Este correo ya está registrado en Waykes' })
+    // Verificar si el correo ya existe en auth.users via service role
+    const { data: existingUsers } = await supabaseAdmin.auth.admin.listUsers()
+    const existingUser = existingUsers?.users?.find(u => u.email === email)
+
+    let userId = null
+
+    if (existingUser) {
+      // Si ya existe en auth pero no en sub_usuarios, lo reutilizamos
+      const { data: subExiste } = await supabaseAdmin
+        .from('sub_usuarios').select('id').eq('email', email).maybeSingle()
+      if (subExiste) {
+        return res.status(400).json({ error: 'Este correo ya está registrado como colaborador' })
       }
-      throw createErr
+      userId = existingUser.id
+    } else {
+      // Crear usuario nuevo con cliente temporal
+      const supabaseTemp = createClient(
+        process.env.SUPABASE_URL,
+        process.env.SUPABASE_ANON_KEY
+      )
+      const { data: authData, error: createErr } = await supabaseTemp.auth.signUp({ email, password })
+      if (createErr) throw createErr
+      userId = authData?.user?.id ?? null
     }
 
-    const userId = authData?.user?.id ?? null
-
-    // Insertar en sub_usuarios
     const { error: insertErr } = await supabaseAdmin.from('sub_usuarios').insert({
       tienda_id: tiendaId,
       user_id:   userId,
@@ -89,7 +92,13 @@ router.delete('/:id', async (req, res) => {
       .from('tiendas').select('id').eq('id', sub.tienda_id).eq('user_id', user.id).single()
     if (!tienda) return res.status(403).json({ error: 'No tienes permiso' })
 
-    // Eliminar de sub_usuarios (cascadea historial)
+    // Eliminar de auth.users con service role
+    if (sub.user_id) {
+      const { error: deleteAuthErr } = await supabaseAdmin.auth.admin.deleteUser(sub.user_id)
+      if (deleteAuthErr) console.warn('⚠️ No se pudo eliminar de auth:', deleteAuthErr.message)
+    }
+
+    // Eliminar de sub_usuarios (cascadea historial automáticamente)
     await supabaseAdmin.from('sub_usuarios').delete().eq('id', id)
 
     return res.json({ message: 'Colaborador eliminado' })
