@@ -12,7 +12,7 @@ const { soloAdmin } = require('../middlewares/authMiddleware')
 
 // ── POST /api/sharf/despacho/:salidaId ───────────────────────────────────────
 // Crear envío en Sharf al momento de despachar
-router.post('/despacho/:salidaId', soloAdmin, async (req, res) => {
+router.post(`/despacho/:salidaId`, async (req, res) => {
   const { salidaId } = req.params
   try {
     // Obtener datos de la salida
