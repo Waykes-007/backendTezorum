@@ -31,21 +31,20 @@ router.post('/crear', async (req, res) => {
       .from('sub_usuarios').select('*', { count: 'exact', head: true }).eq('tienda_id', tiendaId)
     if (count >= 3) return res.status(400).json({ error: 'Alcanzaste el límite de 3 colaboradores' })
 
-    // Verificar si el correo ya existe en auth.users via service role
-    const { data: existingUsers } = await supabaseAdmin.auth.admin.listUsers()
-    const existingUser = existingUsers?.users?.find(u => u.email === email)
+    // Verificar si el correo ya existe en sub_usuarios
+    const { data: subExiste } = await supabaseAdmin
+      .from('sub_usuarios').select('id').eq('email', email).maybeSingle()
+    if (subExiste) {
+      return res.status(400).json({ error: 'Este correo ya está registrado como colaborador' })
+    }
 
-    let userId = null
+    // Verificar si ya existe en auth.users via SQL con service role
+    const { data: authExiste } = await supabaseAdmin
+      .rpc('get_user_id_by_email', { user_email: email })
 
-    if (existingUser) {
-      // Si ya existe en auth pero no en sub_usuarios, lo reutilizamos
-      const { data: subExiste } = await supabaseAdmin
-        .from('sub_usuarios').select('id').eq('email', email).maybeSingle()
-      if (subExiste) {
-        return res.status(400).json({ error: 'Este correo ya está registrado como colaborador' })
-      }
-      userId = existingUser.id
-    } else {
+    let userId = authExiste ?? null
+
+    if (!userId) {
       // Crear usuario nuevo con cliente temporal
       const supabaseTemp = createClient(
         process.env.SUPABASE_URL,
@@ -85,20 +84,21 @@ router.delete('/:id', async (req, res) => {
     const { id } = req.params
 
     const { data: sub } = await supabaseAdmin
-      .from('sub_usuarios').select('user_id, tienda_id').eq('id', id).single()
+      .from('sub_usuarios').select('user_id, tienda_id, email').eq('id', id).single()
     if (!sub) return res.status(404).json({ error: 'Sub-usuario no encontrado' })
 
     const { data: tienda } = await supabaseAdmin
       .from('tiendas').select('id').eq('id', sub.tienda_id).eq('user_id', user.id).single()
     if (!tienda) return res.status(403).json({ error: 'No tienes permiso' })
 
-    // Eliminar de auth.users con service role
+    // Eliminar de auth.users via SQL con service role
     if (sub.user_id) {
-      const { error: deleteAuthErr } = await supabaseAdmin.auth.admin.deleteUser(sub.user_id)
+      const { error: deleteAuthErr } = await supabaseAdmin
+        .rpc('delete_user_by_id', { user_id: sub.user_id })
       if (deleteAuthErr) console.warn('⚠️ No se pudo eliminar de auth:', deleteAuthErr.message)
     }
 
-    // Eliminar de sub_usuarios (cascadea historial automáticamente)
+    // Eliminar de sub_usuarios (cascadea historial)
     await supabaseAdmin.from('sub_usuarios').delete().eq('id', id)
 
     return res.json({ message: 'Colaborador eliminado' })
