@@ -6,6 +6,7 @@ const locationRoutes = require('./routes/locationRoutes');
 const flashRoutes = require('./routes/flashRoutes');
 const adminRoutes = require('./routes/adminRoutes');
 const planRoutes = require('./routes/planRoutes')
+const subUsuarioRoutes = require('./routes/subUsuarioRoutes')
 
 
 
@@ -17,6 +18,7 @@ app.use(cors()); // Permite conexiones desde el dispositivo móvil
 app.use(express.json()); // Permite recibir JSON en las peticiones
 app.use(express.urlencoded({ extended: true })); // ← agrega esto
 app.use('/api/plan', planRoutes)
+app.use('/api/subusuarios', subUsuarioRoutes)
 
 // DIAGNÓSTICO TEMPORAL
 app.use((req, res, next) => {
