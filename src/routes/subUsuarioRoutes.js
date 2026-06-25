@@ -22,11 +22,13 @@ router.post('/crear', async (req, res) => {
       return res.status(400).json({ error: 'Faltan campos requeridos' })
     }
 
+    // Verificar que la tienda pertenece al vendedor y es plan Oro
     const { data: tienda, error: tiendaErr } = await supabaseAdmin
       .from('tiendas').select('id, plan').eq('id', tiendaId).eq('user_id', user.id).single()
     if (tiendaErr || !tienda) return res.status(403).json({ error: 'No tienes permiso sobre esta tienda' })
     if (tienda.plan !== 'oro') return res.status(403).json({ error: 'Solo el plan Oro puede agregar sub-usuarios' })
 
+    // Verificar límite de 3 sub-usuarios
     const { count } = await supabaseAdmin
       .from('sub_usuarios').select('*', { count: 'exact', head: true }).eq('tienda_id', tiendaId)
     if (count >= 3) return res.status(400).json({ error: 'Alcanzaste el límite de 3 colaboradores' })
@@ -38,11 +40,11 @@ router.post('/crear', async (req, res) => {
       return res.status(400).json({ error: 'Este correo ya está registrado como colaborador' })
     }
 
-    // Verificar si ya existe en auth.users via SQL con service role
-    const { data: authExiste } = await supabaseAdmin
-      .rpc('get_user_id_by_email', { user_email: email })
+    // Buscar si el correo ya existe en auth.users via RPC
+    const { data: existingUserId, error: rpcErr } = await supabaseAdmin
+      .rpc('get_user_id_by_email', { p_email: email })
 
-    let userId = authExiste ?? null
+    let userId = existingUserId ?? null
 
     if (!userId) {
       // Crear usuario nuevo con cliente temporal
@@ -55,6 +57,7 @@ router.post('/crear', async (req, res) => {
       userId = authData?.user?.id ?? null
     }
 
+    // Insertar en sub_usuarios
     const { error: insertErr } = await supabaseAdmin.from('sub_usuarios').insert({
       tienda_id: tiendaId,
       user_id:   userId,
@@ -73,6 +76,8 @@ router.post('/crear', async (req, res) => {
 })
 
 // DELETE /api/subusuarios/:id
+// No eliminamos de auth.users — solo de sub_usuarios
+// El correo queda libre para ser reutilizado si se vuelve a agregar
 router.delete('/:id', async (req, res) => {
   const token = req.headers.authorization?.split(' ')[1]
   if (!token) return res.status(401).json({ error: 'No autorizado' })
@@ -91,14 +96,7 @@ router.delete('/:id', async (req, res) => {
       .from('tiendas').select('id').eq('id', sub.tienda_id).eq('user_id', user.id).single()
     if (!tienda) return res.status(403).json({ error: 'No tienes permiso' })
 
-    // Eliminar de auth.users via SQL con service role
-    if (sub.user_id) {
-      const { error: deleteAuthErr } = await supabaseAdmin
-        .rpc('delete_user_by_id', { p_user_id: sub.user_id })
-      if (deleteAuthErr) console.warn('⚠️ No se pudo eliminar de auth:', deleteAuthErr.message)
-    }
-
-    // Eliminar de sub_usuarios (cascadea historial)
+    // Solo eliminar de sub_usuarios — el usuario de auth queda para reutilizar
     await supabaseAdmin.from('sub_usuarios').delete().eq('id', id)
 
     return res.json({ message: 'Colaborador eliminado' })
