@@ -98,4 +98,4 @@ router.delete('/:id', async (req, res) => {
   }
 })
 
-module.exports = routercd C:\tezorum\backend
+module.exports = router
