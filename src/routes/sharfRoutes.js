@@ -18,7 +18,7 @@ router.post(`/despacho/:salidaId`, async (req, res) => {
     // Obtener datos de la salida
     const { data: salida, error: salidaErr } = await supabase
       .from('salidas_paquetes')
-      .select('*, pedidos(id, numero_pedido, direccion_envio, datos_entrega)')
+      .select('*, pedidos(id, numero_pedido, direccion_envio, nombre_destinatario, whatsapp_contacto)')
       .eq('id', salidaId)
       .single()
 
@@ -30,14 +30,18 @@ router.post(`/despacho/:salidaId`, async (req, res) => {
       .from('subpedidos')
       .select('id, codigo_subpedido, tienda_id')
       .eq('pedido_id', salida.pedido_id)
-      .eq('estado', 'consolidado')
+      .in('estado', ['consolidado', 'en_ruta'])
 
     if (!subpedidos?.length) return res.status(400).json({ error: 'No hay subpedidos consolidados para despachar' })
 
     const pedido       = salida.pedidos
-    const datosEntrega = typeof pedido.datos_entrega === 'string'
-      ? JSON.parse(pedido.datos_entrega)
-      : pedido.datos_entrega ?? {}
+    const datosEntrega = {
+      nombre:    pedido.nombre_destinatario ?? 'Cliente',
+      whatsapp:  pedido.whatsapp_contacto ?? '999999999',
+      direccion: pedido.direccion_envio ?? '',
+      referencia: '',
+      dni:       '00000000',
+    }
 
     // Crear envío en Sharf
     const { trackingNumber, trackingURL, orderNumber } = await crearEnvioSharf({
