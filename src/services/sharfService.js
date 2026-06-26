@@ -52,16 +52,16 @@ async function crearEnvioSharf({ pedido, subpedidos, datosEntrega, almacen }) {
         },
       },
       recipientInformation: {
-        companyName: datosEntrega.nombre ?? 'Cliente',
-        personName:  datosEntrega.nombre?.slice(0, 20) ?? 'Cliente',
+        companyName:  (datosEntrega.nombre ?? 'Cliente').slice(0, 100),
+        personName:   (datosEntrega.nombre ?? 'Cliente').slice(0, 20),
         documentType:   '0003',
         documentNumber: datosEntrega.dni ?? '00000000',
-        phoneNumber:    `+51 ${datosEntrega.whatsapp}`,
-        emailAddress:   datosEntrega.email ?? '',
+        phoneNumber:    `+51 ${datosEntrega.whatsapp ?? '999999999'}`,
+        emailAddress:   datosEntrega.email ?? 'cliente@waykes.com',
         addressInformation: {
-          addressLine: datosEntrega.direccion?.slice(0, 150),
-          reference:   datosEntrega.referencia ?? '',
-          ubigeoCode:  datosEntrega.ubigeo ?? '150101', // Lima
+          addressLine: (datosEntrega.direccion ?? 'Lima, Peru').slice(0, 150),
+          reference:   datosEntrega.referencia ?? 'Sin referencia',
+          ubigeoCode:  datosEntrega.ubigeo ?? '150101',
         },
       },
       packages: {
