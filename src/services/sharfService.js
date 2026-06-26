@@ -42,6 +42,7 @@ async function crearEnvioSharf({ pedido, subpedidos, datosEntrega, almacen }) {
       serviceType: 0,
       shipperInformation: {
         companyName: 'Waykes',
+        branchCode:  '0001',
         personName:  'Almacén Waykes',
         phoneNumber: '+51999999999',
         emailAddress: 'almacen@waykes.com',
