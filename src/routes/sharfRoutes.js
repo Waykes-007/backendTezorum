@@ -24,6 +24,8 @@ router.post(`/despacho/:salidaId`, async (req, res) => {
 
     if (salidaErr || !salida) return res.status(404).json({ error: 'Salida no encontrada' })
     if (salida.tracking_number) return res.status(400).json({ error: 'Esta salida ya tiene guía de Sharf' })
+    
+    console.log('📦 salida.pedidos:', JSON.stringify(salida.pedidos))
 
     // Obtener subpedidos de esta salida
     const { data: subpedidos } = await supabase
