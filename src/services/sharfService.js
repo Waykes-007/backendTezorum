@@ -35,7 +35,7 @@ const SHARF_ESTADO_MAP = {
 // ── 1. Crear envío en Sharf ───────────────────────────────────────────────────
 async function crearEnvioSharf({ pedido, subpedidos, datosEntrega, almacen }) {
   try {
-    const orderNumber = String(pedido.numero_pedido ?? pedido.id).slice(0, 25)
+    const orderNumber = `WAY${String(pedido.numero_pedido ?? pedido.id).padStart(10, '0')}`
 
     const body = {
       orderNumber,
@@ -49,6 +49,10 @@ async function crearEnvioSharf({ pedido, subpedidos, datosEntrega, almacen }) {
         addressInformation: {
           addressLine: almacen?.direccion ?? 'Av. Brasil 1258, Pueblo Libre, Lima',
           ubigeoCode:  almacen?.ubigeo ?? '070101',
+          geolocation: {
+            latitude:  '-12.065584',
+            longitude: '-77.006047',
+          },
         },
       },
       recipientInformation: {
@@ -59,6 +63,10 @@ async function crearEnvioSharf({ pedido, subpedidos, datosEntrega, almacen }) {
         addressInformation: {
           addressLine: (datosEntrega.direccion ?? 'Lima, Peru').slice(0, 150),
           ubigeoCode:  '150122',
+          geolocation: {
+            latitude:  '-12.065584',
+            longitude: '-77.006047',
+          },
         },
       },
       packages: {
