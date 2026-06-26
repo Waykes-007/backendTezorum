@@ -53,9 +53,7 @@ async function crearEnvioSharf({ pedido, subpedidos, datosEntrega, almacen }) {
       recipientInformation: {
         companyName:  (datosEntrega.nombre ?? 'Cliente').slice(0, 100),
         personName:   (datosEntrega.nombre ?? 'Cliente').slice(0, 20),
-        documentType:   '0003',
-        documentNumber: datosEntrega.dni ?? '00000000',
-        phoneNumber:    `+51 ${datosEntrega.whatsapp ?? '999999999'}`,
+        phoneNumber:    `+51${(datosEntrega.whatsapp ?? '999999999').replace(/\s/g, '')}`,
         emailAddress:   datosEntrega.email ?? 'cliente@waykes.com',
         addressInformation: {
           addressLine: (datosEntrega.direccion ?? 'Lima, Peru').slice(0, 150),
