@@ -1,38 +1,27 @@
-// src/services/sharfService.js
-const axios   = require('axios')
+const axios    = require('axios')
 const supabase = require('../config/supabase')
 
-const SHARF_BASE_URL      = process.env.SHARF_BASE_URL
-const SUB_KEY_SETTINGS   = process.env.SHARF_SUBSCRIPTION_KEY_SETTINGS
-const SUB_KEY_SHIPMENTS  = process.env.SHARF_SUBSCRIPTION_KEY_SHIPMENTS
-const CLIENT_ID           = process.env.SHARF_CLIENT_ID
+const SHARF_BASE_URL     = process.env.SHARF_BASE_URL
+const SUB_KEY_SETTINGS  = process.env.SHARF_SUBSCRIPTION_KEY_SETTINGS
+const SUB_KEY_SHIPMENTS = process.env.SHARF_SUBSCRIPTION_KEY_SHIPMENTS
+const CLIENT_ID          = process.env.SHARF_CLIENT_ID
 
-// Headers para API Settings (webhook, status)
-const sharfHeadersSettings = () => ({
-  'subscription-key': SUB_KEY_SETTINGS,
-  'client-id':        CLIENT_ID,
-  'Content-Type':     'application/json',
-})
-
-// Headers para API Shipments (crear envío, tracking)
 const sharfHeaders = () => ({
   'subscription-key': SUB_KEY_SHIPMENTS,
   'client-id':        CLIENT_ID,
   'Content-Type':     'application/json',
 })
 
-// ── Mapeo de estados Sharf → estados Waykes ───────────────────────────────────
 const SHARF_ESTADO_MAP = {
-  '5423': 'en_ruta',           // EMITIDO
-  '5678': 'en_ruta',           // ASIGNADO A RUTA
-  '5679': 'entregado',         // ENTREGADO
-  '5680': 'no_entregado',      // NO ENTREGADO
-  '5681': 'en_ruta',           // RECOGIDO
-  '5682': 'no_recogido',       // NO RECOGIDO
-  '6000': 'devolucion',        // DEVOLUCIÓN EFECTIVA
+  '5423': 'en_ruta',
+  '5678': 'en_ruta',
+  '5679': 'entregado',
+  '5680': 'no_entregado',
+  '5681': 'en_ruta',
+  '5682': 'no_recogido',
+  '6000': 'devolucion',
 }
 
-// ── 1. Crear envío en Sharf ───────────────────────────────────────────────────
 async function crearEnvioSharf({ pedido, subpedidos, datosEntrega, almacen }) {
   try {
     const orderNumber = `WAY${String(pedido.numero_pedido ?? pedido.id).padStart(10, '0')}`
@@ -41,14 +30,21 @@ async function crearEnvioSharf({ pedido, subpedidos, datosEntrega, almacen }) {
       orderNumber,
       serviceType: 0,
       shipperInformation: {
-        companyName: 'Waykes',
-        branchCode:  '0001',
-        personName:  'Almacén Waykes',
-        phoneNumber: '+51999999999',
-        emailAddress: 'almacen@waykes.com',
+        companyName:           'Waykes',
+        branchCode:            '0001',
+        personName:            'Almacen Waykes',
+        documentType:          '0004',
+        documentNumber:        '20606370009',
+        phoneNumber:           '+51 999999999',
+        emailAddress:          'almacen@waykes.com',
+        additionalPersonName:  '',
+        additionalDocumentType: '',
+        additionalDocumentNumber: '',
+        additionalPhoneNumber: '',
         addressInformation: {
-          addressLine: almacen?.direccion ?? 'Av. Brasil 1258, Pueblo Libre, Lima',
-          ubigeoCode:  almacen?.ubigeo ?? '070101',
+          addressLine: 'Av. Brasil 1258, Pueblo Libre, Lima',
+          reference:   '',
+          ubigeoCode:  '070101',
           geolocation: {
             latitude:  '-12.065584',
             longitude: '-77.006047',
@@ -56,12 +52,20 @@ async function crearEnvioSharf({ pedido, subpedidos, datosEntrega, almacen }) {
         },
       },
       recipientInformation: {
-        companyName:  (datosEntrega.nombre ?? 'Cliente').slice(0, 100),
-        personName:   (datosEntrega.nombre ?? 'Cliente').slice(0, 20),
-        phoneNumber:    `+51${(datosEntrega.whatsapp ?? '999999999').replace(/\s/g, '')}`,
-        emailAddress:   datosEntrega.email ?? 'cliente@waykes.com',
+        companyName:           (datosEntrega.nombre ?? 'Cliente').slice(0, 100),
+        branchCode:            '0002',
+        personName:            (datosEntrega.nombre ?? 'Cliente').slice(0, 20),
+        documentType:          '0003',
+        documentNumber:        datosEntrega.dni ?? '00000000',
+        phoneNumber:           `+51 ${(datosEntrega.whatsapp ?? '999999999').replace(/\s/g, '')}`,
+        emailAddress:          datosEntrega.email ?? 'cliente@waykes.com',
+        additionalPersonName:  '',
+        additionalDocumentType: '',
+        additionalDocumentNumber: '',
+        additionalPhoneNumber: '',
         addressInformation: {
           addressLine: (datosEntrega.direccion ?? 'Lima, Peru').slice(0, 150),
+          reference:   datosEntrega.referencia ?? '',
           ubigeoCode:  '150122',
           geolocation: {
             latitude:  '-12.065584',
@@ -71,18 +75,26 @@ async function crearEnvioSharf({ pedido, subpedidos, datosEntrega, almacen }) {
       },
       packages: {
         description:       'Productos Waykes',
-        packagingType:     '0002', // BOX
+        packagingType:     '0002',
         totalPackageCount: subpedidos.length,
-        totalWeight:       subpedidos.length * 1.0, // estimado 1kg por paquete
-        additionalInformation: `Subpedidos: ${subpedidos.map(s => s.codigo_subpedido).join(', ')}`,
+        totalWeight:       parseFloat((subpedidos.length * 1.0).toFixed(2)),
+        totalDimWeight:    0.0,
+        additionalInformation: '',
       },
       items: subpedidos.map(s => ({
-        itemDescription: `Subpedido ${s.codigo_subpedido}`,
+        itemCode:        s.codigo_subpedido?.slice(0, 25) ?? '001',
+        itemDescription: `Subpedido ${s.codigo_subpedido}`.slice(0, 150),
+        itemModel:       '',
+        itemBrand:       '',
         itemQuantity:    1,
         weight:          1.0,
+        width:           0,
+        height:          0,
+        length:          0,
       })),
     }
 
+    console.log('📦 Sharf headers:', JSON.stringify(sharfHeaders()))
     console.log('📦 Sharf body:', JSON.stringify(body, null, 2))
 
     const res = await axios.post(
@@ -100,7 +112,6 @@ async function crearEnvioSharf({ pedido, subpedidos, datosEntrega, almacen }) {
   }
 }
 
-// ── 2. Consultar tracking por número de guía ──────────────────────────────────
 async function consultarTracking(trackingNumber) {
   try {
     const res = await axios.get(
@@ -117,7 +128,6 @@ async function consultarTracking(trackingNumber) {
   }
 }
 
-// ── 3. Consultar tracking por número de pedido ────────────────────────────────
 async function consultarTrackingPorPedido(orderNumber) {
   try {
     const res = await axios.get(
@@ -134,14 +144,11 @@ async function consultarTrackingPorPedido(orderNumber) {
   }
 }
 
-// ── 4. Procesar webhook de Sharf ──────────────────────────────────────────────
 async function procesarWebhookSharf(payload) {
   const {
-    orderNumber,
     trackingNumber,
     orderStatusCode,
     orderStatusDescription,
-    orderSubStatusCode,
     orderSubStatusDescription,
   } = payload
 
@@ -149,42 +156,24 @@ async function procesarWebhookSharf(payload) {
 
   const estadoWaykes = SHARF_ESTADO_MAP[orderStatusCode] ?? 'en_ruta'
 
-  // Actualizar salida_paquetes con el nuevo estado
-  const { error: salidaErr } = await supabase
-    .from('salidas_paquetes')
-    .update({
-      sharf_status:      orderStatusCode,
-      sharf_status_desc: orderStatusDescription,
-    })
-    .eq('tracking_number', trackingNumber)
+  await supabase.from('salidas_paquetes').update({
+    sharf_status:      orderStatusCode,
+    sharf_status_desc: orderStatusDescription,
+  }).eq('tracking_number', trackingNumber)
 
-  if (salidaErr) console.error('❌ Update salidas_paquetes:', salidaErr.message)
+  await supabase.from('subpedidos').update({
+    estado:            estadoWaykes,
+    sharf_status:      orderStatusCode,
+    sharf_status_desc: `${orderStatusDescription}${orderSubStatusDescription ? ' - ' + orderSubStatusDescription : ''}`,
+  }).eq('tracking_number', trackingNumber)
 
-  // Actualizar subpedidos relacionados al pedido
-  const { error: subErr } = await supabase
-    .from('subpedidos')
-    .update({
-      estado:            estadoWaykes,
-      sharf_status:      orderStatusCode,
-      sharf_status_desc: `${orderStatusDescription}${orderSubStatusDescription ? ' - ' + orderSubStatusDescription : ''}`,
-    })
-    .eq('tracking_number', trackingNumber)
-
-  if (subErr) console.error('❌ Update subpedidos:', subErr.message)
-
-  // Si fue entregado, actualizar pedido principal también
   if (orderStatusCode === '5679') {
-    // Buscar pedido_id desde salidas_paquetes
     const { data: salida } = await supabase
-      .from('salidas_paquetes')
-      .select('pedido_id')
-      .eq('tracking_number', trackingNumber)
-      .single()
-
+      .from('salidas_paquetes').select('pedido_id')
+      .eq('tracking_number', trackingNumber).single()
     if (salida?.pedido_id) {
       await supabase.from('pedidos')
-        .update({ estado_pedido: 'entregado' })
-        .eq('id', salida.pedido_id)
+        .update({ estado_pedido: 'entregado' }).eq('id', salida.pedido_id)
     }
   }
 
