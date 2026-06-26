@@ -52,7 +52,7 @@ async function crearEnvioSharf({ pedido, subpedidos, datosEntrega, almacen }) {
         },
       },
       recipientInformation: {
-        companyName: '',
+        companyName: datosEntrega.nombre ?? 'Cliente',
         personName:  datosEntrega.nombre?.slice(0, 20) ?? 'Cliente',
         documentType:   '0003',
         documentNumber: datosEntrega.dni ?? '00000000',
