@@ -47,7 +47,7 @@ async function crearEnvioSharf({ pedido, subpedidos, datosEntrega, almacen }) {
         emailAddress: 'almacen@waykes.com',
         addressInformation: {
           addressLine: almacen?.direccion ?? 'Av. Brasil 1258, Pueblo Libre, Lima',
-          ubigeoCode:  almacen?.ubigeo ?? '150130',
+          ubigeoCode:  almacen?.ubigeo ?? '070101',
         },
       },
       recipientInformation: {
@@ -57,7 +57,7 @@ async function crearEnvioSharf({ pedido, subpedidos, datosEntrega, almacen }) {
         emailAddress:   datosEntrega.email ?? 'cliente@waykes.com',
         addressInformation: {
           addressLine: (datosEntrega.direccion ?? 'Lima, Peru').slice(0, 150),
-          ubigeoCode:  '150101',
+          ubigeoCode:  '150122',
         },
       },
       packages: {
