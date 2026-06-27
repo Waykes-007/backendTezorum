@@ -9,42 +9,73 @@ const supabase = require('../config/supabase');
 exports.register = async (req, res) => {
     try {
         const { email, password } = req.body;
-
+ 
         if (!email || !password) {
             return res.status(400).json({ message: 'Email y contraseña requeridos' });
         }
-
-        // 1. Registro en Auth
+ 
         const { data, error } = await supabase.auth.signUp({ email, password });
         if (error) throw error;
-
-        // 2. EL SEGURO: Si el trigger falló, esto crea la fila manualmente.
-        // Si el trigger funcionó, esto simplemente no hace nada (no duplica).
+ 
+        // Crear fila en usuarios si el trigger falla
         await supabase.from('usuarios').upsert({
-            id: data.user.id,
-            correo_electronico: email,
-            nombre_completo: 'Usuario Tezórum',
-            saldo_disponible: 0.00
+            id:                  data.user.id,
+            correo_electronico:  email,
+            nombre_completo:     'Usuario Waykes',
+            saldo_disponible:    0.00
         });
-
+ 
+        // Devolver token para que Flutter inicie sesión directo
+        const token = data.session?.access_token ?? null;
+ 
         res.status(201).json({
-            message: '¡Bienvenido!',
+            message:  '¡Bienvenido a Waykes!',
+            token,
+            user: {
+                id:    data.user.id,
+                email: data.user.email,
+            },
             userId: data.user.id,
-            email: data.user.email
+            email:  data.user.email,
         });
     } catch (error) {
-        // ESTO ES LO MÁS IMPORTANTE AHORA
-        console.log("========== ERROR DE BASE DE DATOS ==========");
-        console.log("Mensaje:", error.message);
-        console.log("Detalles completos:", error); 
-        console.log("============================================");
-        
-        res.status(400).json({ 
-            error: 'Database error', 
-            message: error.message 
+        console.log("❌ Error register:", error.message);
+        res.status(400).json({
+            error:   'Error en registro',
+            message: error.message
         });
     }
-    };
+};
+ 
+// ── REEMPLAZAR exports.login ──────────────────────────────────────
+exports.login = async (req, res) => {
+    try {
+        const { email, password } = req.body;
+ 
+        const { data, error } = await supabase.auth.signInWithPassword({
+            email,
+            password,
+        });
+ 
+        if (error) throw error;
+ 
+        // Flutter AuthService espera: { token, user: { id, email } }
+        res.status(200).json({
+            message: 'Bienvenido a Waykes',
+            token:   data.session.access_token,   // ← campo que usa AuthService
+            user: {
+                id:    data.user.id,
+                email: data.user.email,
+            },
+            session: data.session,                // mantener por compatibilidad
+        });
+    } catch (error) {
+        res.status(401).json({
+            error:   'Credenciales inválidas',
+            message: error.message
+        });
+    }
+};
 /**
  * PASO 2: Completar Registro (Lógica de Referidos)
  * Verifica si el usuario usó un código para aplicar los bonos de la Guía.
@@ -87,32 +118,6 @@ exports.completarRegistro = async (req, res) => {
 /**
  * INICIO DE SESIÓN
  */
-exports.login = async (req, res) => {
-    try {
-        const { email, password } = req.body;
-
-        const { data, error } = await supabase.auth.signInWithPassword({
-            email,
-            password,
-        });
-
-        if (error) throw error;
-
-        res.status(200).json({
-            message: 'Bienvenido a Tezórum',
-            user: {
-                id: data.user.id,
-                email: data.user.email
-            },
-            session: data.session
-        });
-    } catch (error) {
-        res.status(401).json({ 
-            error: 'Credenciales inválidas', 
-            message: error.message 
-        });
-    }
-};
 
 exports.validarCelular = async (req, res) => {
     try {
