@@ -566,49 +566,74 @@ module.exports = router
 
 router.get('/promociones', async (req, res) => {
   try {
-    // Ofertas flash activas (join con productos)
+    // ── Flash: productos con es_oferta_flash = true ─────────
     const { data: flashData } = await supabase
-      .from('ofertas_flash')
-      .select(`
-        id, precio_oferta, activa,
-        productos(
-          id, nombre_producto, imagenes, precio_normal,
-          estado_aprobacion, tienda_id
-        )
-      `)
-      .eq('activa', true)
+      .from('productos')
+      .select('id, nombre_producto, imagenes, precio_normal, precio_oferta, precio_flash, tiendas(nombre_tienda)')
+      .eq('es_oferta_flash', true)
+      .eq('estado_aprobacion', 'publicado')
       .limit(20)
 
-    const flash = (flashData ?? [])
-      .filter(o => o.productos && o.productos.estado_aprobacion === 'publicado')
-      .map(o => ({
-        producto_id:     o.productos.id,
-        nombre:          o.productos.nombre_producto,
-        imagen:          Array.isArray(o.productos.imagenes) && o.productos.imagenes.length > 0
-                           ? o.productos.imagenes[0] : null,
-        precio_normal:   parseFloat(o.productos.precio_normal) || 0,
-        precio_promocion: parseFloat(o.precio_oferta) || 0,
-        tipo_limite:     'tiempo',
+    const flash = (flashData ?? []).map(p => ({
+      producto_id:      p.id,
+      nombre:           p.nombre_producto,
+      imagen:           Array.isArray(p.imagenes) && p.imagenes.length > 0 ? p.imagenes[0] : null,
+      precio_normal:    parseFloat(p.precio_normal) || 0,
+      precio_promocion: parseFloat(p.precio_flash ?? p.precio_oferta ?? p.precio_normal) || 0,
+    }))
+
+    // ── Con oferta: productos con precio_oferta < precio_normal ─
+    const { data: ofertasData } = await supabase
+      .from('productos')
+      .select('id, nombre_producto, imagenes, precio_normal, precio_oferta')
+      .eq('estado_aprobacion', 'publicado')
+      .not('precio_oferta', 'is', null)
+      .limit(20)
+
+    const con_oferta = (ofertasData ?? [])
+      .filter(p => parseFloat(p.precio_oferta) < parseFloat(p.precio_normal))
+      .map(p => ({
+        producto_id:      p.id,
+        nombre:           p.nombre_producto,
+        imagen:           Array.isArray(p.imagenes) && p.imagenes.length > 0 ? p.imagenes[0] : null,
+        precio_normal:    parseFloat(p.precio_normal) || 0,
+        precio_promocion: parseFloat(p.precio_oferta) || 0,
       }))
 
-    // Más vendidos
-    const { data: masVendidosData } = await supabase
+    // ── Más vendidos ─────────────────────────────────────────
+    const { data: topData } = await supabase
       .from('productos')
       .select('id, nombre_producto, imagenes, precio_normal, precio_oferta')
       .eq('es_mas_vendido', true)
       .eq('estado_aprobacion', 'publicado')
       .limit(12)
 
-    const mas_vendidos = (masVendidosData ?? []).map(p => ({
-      producto_id:     p.id,
-      nombre:          p.nombre_producto,
-      imagen:          Array.isArray(p.imagenes) && p.imagenes.length > 0
-                         ? p.imagenes[0] : null,
-      precio_normal:   parseFloat(p.precio_normal) || 0,
+    // Si no hay marcados como más vendidos, usar los que tienen mayor calificación
+    let mas_vendidos = (topData ?? []).map(p => ({
+      producto_id:      p.id,
+      nombre:           p.nombre_producto,
+      imagen:           Array.isArray(p.imagenes) && p.imagenes.length > 0 ? p.imagenes[0] : null,
+      precio_normal:    parseFloat(p.precio_normal) || 0,
       precio_promocion: parseFloat(p.precio_oferta ?? p.precio_normal) || 0,
     }))
 
-    // Liquidación
+    if (mas_vendidos.length === 0) {
+      const { data: topRating } = await supabase
+        .from('productos')
+        .select('id, nombre_producto, imagenes, precio_normal, precio_oferta, calificacion_promedio')
+        .eq('estado_aprobacion', 'publicado')
+        .order('calificacion_promedio', { ascending: false })
+        .limit(8)
+      mas_vendidos = (topRating ?? []).map(p => ({
+        producto_id:      p.id,
+        nombre:           p.nombre_producto,
+        imagen:           Array.isArray(p.imagenes) && p.imagenes.length > 0 ? p.imagenes[0] : null,
+        precio_normal:    parseFloat(p.precio_normal) || 0,
+        precio_promocion: parseFloat(p.precio_oferta ?? p.precio_normal) || 0,
+      }))
+    }
+
+    // ── Liquidación ──────────────────────────────────────────
     const { data: liquidData } = await supabase
       .from('productos')
       .select('id, nombre_producto, imagenes, precio_normal, precio_oferta')
@@ -617,15 +642,14 @@ router.get('/promociones', async (req, res) => {
       .limit(12)
 
     const liquidacion = (liquidData ?? []).map(p => ({
-      producto_id:     p.id,
-      nombre:          p.nombre_producto,
-      imagen:          Array.isArray(p.imagenes) && p.imagenes.length > 0
-                         ? p.imagenes[0] : null,
-      precio_normal:   parseFloat(p.precio_normal) || 0,
+      producto_id:      p.id,
+      nombre:           p.nombre_producto,
+      imagen:           Array.isArray(p.imagenes) && p.imagenes.length > 0 ? p.imagenes[0] : null,
+      precio_normal:    parseFloat(p.precio_normal) || 0,
       precio_promocion: parseFloat(p.precio_oferta ?? p.precio_normal) || 0,
     }))
 
-    // Gancho — menos de S/9.90
+    // ── Gancho < S/9.90 ──────────────────────────────────────
     const { data: ganchoData } = await supabase
       .from('productos')
       .select('id, nombre_producto, imagenes, precio_normal, precio_oferta')
@@ -634,20 +658,20 @@ router.get('/promociones', async (req, res) => {
       .limit(12)
 
     const gancho = (ganchoData ?? []).map(p => ({
-      producto_id:     p.id,
-      nombre:          p.nombre_producto,
-      imagen:          Array.isArray(p.imagenes) && p.imagenes.length > 0
-                         ? p.imagenes[0] : null,
-      precio_normal:   parseFloat(p.precio_normal) || 0,
+      producto_id:      p.id,
+      nombre:           p.nombre_producto,
+      imagen:           Array.isArray(p.imagenes) && p.imagenes.length > 0 ? p.imagenes[0] : null,
+      precio_normal:    parseFloat(p.precio_normal) || 0,
       precio_promocion: parseFloat(p.precio_oferta ?? p.precio_normal) || 0,
     }))
 
     res.json({
       flash,
+      con_oferta,   // productos con precio_oferta activo
       mas_vendidos,
       liquidacion,
       gancho,
-      total: flash.length + mas_vendidos.length + liquidacion.length + gancho.length,
+      total: flash.length + con_oferta.length + mas_vendidos.length + liquidacion.length + gancho.length,
     })
   } catch (err) {
     res.status(500).json({ error: err.message })
@@ -714,3 +738,12 @@ router.get('/productos/buscar', async (req, res) => {
     res.json(data)
   } catch (err) { res.status(500).json({ error: err.message }) }
 })
+
+// ══════════════════════════════════════════════════════════════
+// REEMPLAZAR /api/promociones con lógica basada en BD real
+// Productos con precio_oferta = sección "Ofertas"
+// Productos con es_oferta_flash = true = sección "Flash"
+// ══════════════════════════════════════════════════════════════
+// NOTA: El router.get('/promociones') anterior fue reemplazado
+// Este nuevo endpoint tiene prioridad por estar después
+// ══════════════════════════════════════════════════════════════
