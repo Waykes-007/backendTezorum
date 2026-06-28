@@ -747,3 +747,56 @@ router.get('/productos/buscar', async (req, res) => {
 // NOTA: El router.get('/promociones') anterior fue reemplazado
 // Este nuevo endpoint tiene prioridad por estar después
 // ══════════════════════════════════════════════════════════════
+
+// ══════════════════════════════════════════════════════════════
+// GET /api/productos — con join de tiendas para tiendaNombre
+// ══════════════════════════════════════════════════════════════
+router.get('/productos', async (req, res) => {
+  try {
+    const { limit = 20, offset = 0, estado = 'publicado', tiendaId } = req.query
+
+    let query = supabase
+      .from('productos')
+      .select(`
+        id, nombre_producto, descripcion, precio_normal, precio_oferta,
+        precio_flash, imagenes, calificacion_promedio, stock_disponible,
+        estado_aprobacion, tienda_id, es_oferta_flash, es_mas_vendido,
+        tiendas(id, nombre_tienda)
+      `)
+      .eq('estado_aprobacion', estado)
+      .range(parseInt(offset), parseInt(offset) + parseInt(limit) - 1)
+      .order('fecha_creacion', { ascending: false })
+
+    if (tiendaId) query = query.eq('tienda_id', tiendaId)
+
+    const { data, error } = await query
+    if (error) throw error
+    res.json(data ?? [])
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// ══════════════════════════════════════════════════════════════
+// GET /api/ofertas-flash/activas — con join de tiendas
+// ══════════════════════════════════════════════════════════════
+router.get('/ofertas-flash/activas', async (req, res) => {
+  try {
+    // Primero buscar productos marcados como es_oferta_flash
+    const { data, error } = await supabase
+      .from('productos')
+      .select(`
+        id, nombre_producto, precio_normal, precio_oferta, precio_flash,
+        imagenes, calificacion_promedio, stock_disponible, estado_aprobacion,
+        tienda_id, tiendas(id, nombre_tienda)
+      `)
+      .eq('es_oferta_flash', true)
+      .eq('estado_aprobacion', 'publicado')
+      .limit(20)
+
+    if (error) throw error
+    res.json(data ?? [])
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
