@@ -3,9 +3,9 @@
 //   const nuevasRoutes = require('./routes/nuevasRoutes')
 //   app.use('/api', nuevasRoutes)
 
-const express      = require('express')
-const router       = express.Router()
-const supabase     = require('../config/supabase')
+const express       = require('express')
+const router        = express.Router()
+const supabase      = require('../config/supabase')
 const walletService = require('../services/walletService')
 
 // ══════════════════════════════════════════════════════════════
@@ -30,7 +30,6 @@ router.post('/direcciones', async (req, res) => {
     const { usuario_id, label, nombre, direccion, distrito, telefono, is_default } = req.body
     if (!usuario_id || !nombre || !direccion || !distrito || !telefono)
       return res.status(400).json({ error: 'Faltan campos requeridos' })
-
     if (is_default) {
       await supabase.from('direcciones_usuario')
         .update({ is_default: false }).eq('usuario_id', usuario_id)
@@ -114,15 +113,31 @@ router.delete('/metodos-pago/:id', async (req, res) => {
 
 // ══════════════════════════════════════════════════════════════
 // NOTIFICACIONES
+// Columnas reales: id, tienda_id, tipo, titulo, mensaje, leida,
+//                 datos (jsonb), fecha, usuario_id, cuerpo, created_at
 // ══════════════════════════════════════════════════════════════
 
 router.get('/notificaciones/:userId', async (req, res) => {
   try {
     const { data, error } = await supabase
       .from('notificaciones')
-      .select('*')
+      .select('id, titulo, mensaje, tipo, leida, fecha, datos')
       .eq('usuario_id', req.params.userId)
-      .order('created_at', { ascending: false })
+      .order('fecha', { ascending: false })
+      .limit(50)
+    if (error) throw error
+    res.json(data)
+  } catch (err) { res.status(500).json({ error: err.message }) }
+})
+
+// Notificaciones del vendedor por tiendaId
+router.get('/notificaciones/tienda/:tiendaId', async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from('notificaciones')
+      .select('id, titulo, mensaje, tipo, leida, fecha, datos')
+      .eq('tienda_id', req.params.tiendaId)
+      .order('fecha', { ascending: false })
       .limit(50)
     if (error) throw error
     res.json(data)
@@ -204,8 +219,19 @@ router.get('/logros/:userId', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }) }
 })
 
+async function otorgarLogro(usuarioId, tipoLogro, descripcion) {
+  try {
+    await supabase.from('logros_usuario').upsert(
+      { usuario_id: usuarioId, tipo_logro: tipoLogro, descripcion },
+      { onConflict: 'usuario_id,tipo_logro' }
+    )
+  } catch (_) {}
+}
+module.exports.otorgarLogro = otorgarLogro
+
 // ══════════════════════════════════════════════════════════════
-// RULETA — cooldown 24h real
+// RULETA — cooldown 24h
+// usuarios: id, ultima_ruleta (nueva columna agregada)
 // ══════════════════════════════════════════════════════════════
 
 const PREMIOS_RULETA = [
@@ -222,10 +248,8 @@ router.get('/ruleta/estado/:userId', async (req, res) => {
     const { data: u, error } = await supabase
       .from('usuarios').select('ultima_ruleta').eq('id', req.params.userId).single()
     if (error) throw error
-
     const puedeGirar = !u.ultima_ruleta ||
       (Date.now() - new Date(u.ultima_ruleta).getTime()) >= 24 * 60 * 60 * 1000
-
     const horasRestantes = puedeGirar ? 0 : parseFloat(
       (24 - (Date.now() - new Date(u.ultima_ruleta).getTime()) / (1000 * 60 * 60)).toFixed(1)
     )
@@ -271,9 +295,9 @@ router.post('/ruleta/girar', async (req, res) => {
 
 // ══════════════════════════════════════════════════════════════
 // DASHBOARD VENDEDOR
-// Usa: subpedidos.tienda_id, resenas.usuario_id, productos.tienda_id
-// resenas usa calificacion (int) y fecha_creacion
-// productos usa estado_aprobacion == 'aprobado' y stock_disponible
+// subpedidos: tienda_id, estado, fecha_creacion ✅ (no tiene monto_vendedor)
+// resenas: producto_id, calificacion ✅ (no tiene tienda_id directo)
+// productos: tienda_id, estado_aprobacion ✅ (no tiene activo)
 // ══════════════════════════════════════════════════════════════
 
 router.get('/vendedores/dashboard/:tiendaId', async (req, res) => {
@@ -282,6 +306,7 @@ router.get('/vendedores/dashboard/:tiendaId', async (req, res) => {
     const inicioSemana = new Date()
     inicioSemana.setDate(inicioSemana.getDate() - 7)
 
+    // Subpedidos últimos 7 días — fecha_creacion ✅
     const { data: subpedidos } = await supabase
       .from('subpedidos')
       .select('estado, fecha_creacion')
@@ -291,18 +316,18 @@ router.get('/vendedores/dashboard/:tiendaId', async (req, res) => {
     const totalPedidosSemana = (subpedidos ?? [])
       .filter(s => s.estado !== 'cancelado').length
 
-    // resenas usa calificacion (int) y no tiene tienda_id directamente
-    // se busca por productos de la tienda
+    // Productos aprobados — estado_aprobacion ✅
     const { data: prods } = await supabase
       .from('productos')
       .select('id')
       .eq('tienda_id', tiendaId)
-      .eq('estado_aprobacion', 'aprobado')
+      .eq('estado_aprobacion', 'publicado')
 
     const prodIds = (prods ?? []).map(p => p.id)
     let rating = 5.0
     let totalResenas = 0
 
+    // Reseñas via producto_id — calificacion ✅
     if (prodIds.length > 0) {
       const { data: resenas } = await supabase
         .from('resenas')
@@ -311,7 +336,9 @@ router.get('/vendedores/dashboard/:tiendaId', async (req, res) => {
 
       totalResenas = resenas?.length ?? 0
       rating = totalResenas > 0
-        ? parseFloat((resenas.reduce((s, r) => s + (r.calificacion ?? 0), 0) / totalResenas).toFixed(1))
+        ? parseFloat(
+            (resenas.reduce((s, r) => s + (r.calificacion ?? 0), 0) / totalResenas).toFixed(1)
+          )
         : 5.0
     }
 
@@ -325,7 +352,8 @@ router.get('/vendedores/dashboard/:tiendaId', async (req, res) => {
 })
 
 // ══════════════════════════════════════════════════════════════
-// VENTAS DEL VENDEDOR (subpedidos)
+// VENTAS DEL VENDEDOR
+// subpedidos: fecha_creacion ✅ (no tiene created_at ni monto_vendedor)
 // ══════════════════════════════════════════════════════════════
 
 router.get('/subpedidos', async (req, res) => {
@@ -350,8 +378,9 @@ router.get('/subpedidos', async (req, res) => {
 })
 
 // ══════════════════════════════════════════════════════════════
-// PERFIL DE TIENDA — editar campos permitidos
-// tiendas NO tiene email propio — usa whatsapp_contacto
+// PERFIL DE TIENDA
+// tiendas: whatsapp_contacto ✅, direccion_almacen ✅
+// NO tiene email_contacto ni descripcion_tienda
 // ══════════════════════════════════════════════════════════════
 
 router.put('/tiendas/:id', async (req, res) => {
@@ -369,15 +398,16 @@ router.put('/tiendas/:id', async (req, res) => {
 })
 
 // ══════════════════════════════════════════════════════════════
-// RESEÑAS POR USUARIO (My Reviews)
-// resenas usa: producto_id, usuario_id, calificacion, comentario, fecha_creacion
+// RESEÑAS POR USUARIO
+// resenas: usuario_id, calificacion, comentario, fecha_creacion, imagenes ✅
+// productos: nombre_producto, imagenes (ARRAY) ✅ (no tiene imagen_url)
 // ══════════════════════════════════════════════════════════════
 
 router.get('/resenas/usuario/:userId', async (req, res) => {
   try {
     const { data, error } = await supabase
       .from('resenas')
-      .select('*, productos(nombre_producto, imagenes)')
+      .select('id, calificacion, comentario, fecha_creacion, imagenes, productos(nombre_producto, imagenes)')
       .eq('usuario_id', req.params.userId)
       .order('fecha_creacion', { ascending: false })
     if (error) throw error
@@ -388,7 +418,8 @@ router.get('/resenas/usuario/:userId', async (req, res) => {
 // ══════════════════════════════════════════════════════════════
 // PRODUCTOS VENDEDOR — CRUD
 // productos: nombre_producto, precio_normal, precio_oferta,
-//            stock_disponible, imagenes (ARRAY), estado_aprobacion
+//            stock_disponible, imagenes (ARRAY), estado_aprobacion,
+//            categoria_id (int), subcategoria_id (int) ✅
 // ══════════════════════════════════════════════════════════════
 
 router.post('/productos-vendedor', async (req, res) => {
@@ -406,13 +437,13 @@ router.post('/productos-vendedor', async (req, res) => {
         tienda_id,
         nombre_producto,
         descripcion,
-        precio_normal:    parseFloat(precio_normal),
-        precio_oferta:    precio_oferta ? parseFloat(precio_oferta) : null,
-        imagenes:         imagenes ?? [],
-        categoria_id:     categoria_id ? parseInt(categoria_id) : null,
-        subcategoria_id:  subcategoria_id ? parseInt(subcategoria_id) : null,
-        stock_disponible: parseInt(stock_disponible) || 0,
-        estado_aprobacion: 'pendiente', // admin debe aprobar
+        precio_normal:     parseFloat(precio_normal),
+        precio_oferta:     precio_oferta ? parseFloat(precio_oferta) : null,
+        imagenes:          imagenes ?? [],
+        categoria_id:      categoria_id  ? parseInt(categoria_id)  : null,
+        subcategoria_id:   subcategoria_id ? parseInt(subcategoria_id) : null,
+        stock_disponible:  parseInt(stock_disponible) || 0,
+        estado_aprobacion: 'pendiente',
       })
       .select().single()
 
@@ -432,14 +463,12 @@ router.put('/productos-vendedor/:id', async (req, res) => {
       return res.status(403).json({ error: 'Sin permiso sobre este producto' })
 
     const update = {}
-    if (nombre_producto)   update.nombre_producto  = nombre_producto
-    if (descripcion)       update.descripcion       = descripcion
-    if (precio_normal)     update.precio_normal     = parseFloat(precio_normal)
-    if (precio_oferta !== undefined)
-                           update.precio_oferta     = precio_oferta ? parseFloat(precio_oferta) : null
-    if (imagenes)          update.imagenes          = imagenes
-    if (stock_disponible !== undefined)
-                           update.stock_disponible  = parseInt(stock_disponible)
+    if (nombre_producto !== undefined)  update.nombre_producto  = nombre_producto
+    if (descripcion !== undefined)      update.descripcion       = descripcion
+    if (precio_normal !== undefined)    update.precio_normal     = parseFloat(precio_normal)
+    if (precio_oferta !== undefined)    update.precio_oferta     = precio_oferta ? parseFloat(precio_oferta) : null
+    if (imagenes !== undefined)         update.imagenes          = imagenes
+    if (stock_disponible !== undefined) update.stock_disponible  = parseInt(stock_disponible)
 
     const { data, error } = await supabase
       .from('productos').update(update).eq('id', req.params.id).select().single()
@@ -455,7 +484,7 @@ router.delete('/productos-vendedor/:id', async (req, res) => {
       .from('productos').select('tienda_id').eq('id', req.params.id).single()
     if (!prod || prod.tienda_id !== tienda_id)
       return res.status(403).json({ error: 'Sin permiso' })
-    // Soft delete — cambiar estado a rechazado en lugar de borrar
+    // Soft delete — cambiar a rechazado
     await supabase.from('productos')
       .update({ estado_aprobacion: 'rechazado' }).eq('id', req.params.id)
     res.json({ message: 'Producto desactivado' })
@@ -463,21 +492,22 @@ router.delete('/productos-vendedor/:id', async (req, res) => {
 })
 
 // ══════════════════════════════════════════════════════════════
-// CATEGORÍAS — para dropdowns en el frontend
+// CATEGORÍAS
+// categorias: id (int), nombre, slug, url_icono ✅ (no tiene emoji)
 // ══════════════════════════════════════════════════════════════
 
 router.get('/categorias', async (req, res) => {
   try {
     const { data, error } = await supabase
-      .from('categorias').select('id, nombre').order('nombre')
+      .from('categorias').select('id, nombre, slug, url_icono').order('nombre')
     if (error) throw error
     res.json(data)
   } catch (err) { res.status(500).json({ error: err.message }) }
 })
 
 // ══════════════════════════════════════════════════════════════
-// CARRITO — actualizar cantidad (endpoint faltante)
-// carrito: usuario_id, producto_id, cantidad, fecha_agregado
+// CARRITO — actualizar cantidad
+// carrito: usuario_id, producto_id, cantidad ✅
 // ══════════════════════════════════════════════════════════════
 
 router.put('/carrito/cantidad', async (req, res) => {
@@ -488,7 +518,9 @@ router.put('/carrito/cantidad', async (req, res) => {
 
     if (parseInt(cantidad) <= 0) {
       await supabase.from('carrito')
-        .delete().eq('usuario_id', usuario_id).eq('producto_id', producto_id)
+        .delete()
+        .eq('usuario_id', usuario_id)
+        .eq('producto_id', producto_id)
       return res.json({ message: 'Ítem eliminado' })
     }
 
@@ -504,9 +536,9 @@ router.put('/carrito/cantidad', async (req, res) => {
 })
 
 // ══════════════════════════════════════════════════════════════
-// PERFIL DE USUARIO — datos para ProfileScreen
+// PERFIL DE USUARIO
 // usuarios: nombre_completo, correo_electronico, telefono,
-//           saldo_disponible, codigo_referido_propio, rol
+//           saldo_disponible, codigo_referido_propio, rol ✅
 // ══════════════════════════════════════════════════════════════
 
 router.get('/usuarios/perfil/:id', async (req, res) => {
@@ -526,3 +558,159 @@ router.get('/usuarios/perfil/:id', async (req, res) => {
 })
 
 module.exports = router
+
+// ══════════════════════════════════════════════════════════════
+// PROMOCIONES — datos reales para OffersScreen
+// GET /api/promociones
+// ══════════════════════════════════════════════════════════════
+
+router.get('/promociones', async (req, res) => {
+  try {
+    // Ofertas flash activas (join con productos)
+    const { data: flashData } = await supabase
+      .from('ofertas_flash')
+      .select(`
+        id, precio_oferta, activa,
+        productos(
+          id, nombre_producto, imagenes, precio_normal,
+          estado_aprobacion, tienda_id
+        )
+      `)
+      .eq('activa', true)
+      .limit(20)
+
+    const flash = (flashData ?? [])
+      .filter(o => o.productos && o.productos.estado_aprobacion === 'publicado')
+      .map(o => ({
+        producto_id:     o.productos.id,
+        nombre:          o.productos.nombre_producto,
+        imagen:          Array.isArray(o.productos.imagenes) && o.productos.imagenes.length > 0
+                           ? o.productos.imagenes[0] : null,
+        precio_normal:   parseFloat(o.productos.precio_normal) || 0,
+        precio_promocion: parseFloat(o.precio_oferta) || 0,
+        tipo_limite:     'tiempo',
+      }))
+
+    // Más vendidos
+    const { data: masVendidosData } = await supabase
+      .from('productos')
+      .select('id, nombre_producto, imagenes, precio_normal, precio_oferta')
+      .eq('es_mas_vendido', true)
+      .eq('estado_aprobacion', 'publicado')
+      .limit(12)
+
+    const mas_vendidos = (masVendidosData ?? []).map(p => ({
+      producto_id:     p.id,
+      nombre:          p.nombre_producto,
+      imagen:          Array.isArray(p.imagenes) && p.imagenes.length > 0
+                         ? p.imagenes[0] : null,
+      precio_normal:   parseFloat(p.precio_normal) || 0,
+      precio_promocion: parseFloat(p.precio_oferta ?? p.precio_normal) || 0,
+    }))
+
+    // Liquidación
+    const { data: liquidData } = await supabase
+      .from('productos')
+      .select('id, nombre_producto, imagenes, precio_normal, precio_oferta')
+      .eq('es_liquidacion', true)
+      .eq('estado_aprobacion', 'publicado')
+      .limit(12)
+
+    const liquidacion = (liquidData ?? []).map(p => ({
+      producto_id:     p.id,
+      nombre:          p.nombre_producto,
+      imagen:          Array.isArray(p.imagenes) && p.imagenes.length > 0
+                         ? p.imagenes[0] : null,
+      precio_normal:   parseFloat(p.precio_normal) || 0,
+      precio_promocion: parseFloat(p.precio_oferta ?? p.precio_normal) || 0,
+    }))
+
+    // Gancho — menos de S/9.90
+    const { data: ganchoData } = await supabase
+      .from('productos')
+      .select('id, nombre_producto, imagenes, precio_normal, precio_oferta')
+      .eq('es_gancho_menor_9_90', true)
+      .eq('estado_aprobacion', 'publicado')
+      .limit(12)
+
+    const gancho = (ganchoData ?? []).map(p => ({
+      producto_id:     p.id,
+      nombre:          p.nombre_producto,
+      imagen:          Array.isArray(p.imagenes) && p.imagenes.length > 0
+                         ? p.imagenes[0] : null,
+      precio_normal:   parseFloat(p.precio_normal) || 0,
+      precio_promocion: parseFloat(p.precio_oferta ?? p.precio_normal) || 0,
+    }))
+
+    res.json({
+      flash,
+      mas_vendidos,
+      liquidacion,
+      gancho,
+      total: flash.length + mas_vendidos.length + liquidacion.length + gancho.length,
+    })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// ══════════════════════════════════════════════════════════════
+// FAVORITOS
+// GET  /api/favoritos/:userId
+// POST /api/favoritos  { usuario_id, producto_id }
+// DELETE /api/favoritos/:userId/:productoId
+// GET /api/productos/buscar?nombre=X
+// ══════════════════════════════════════════════════════════════
+
+router.get('/favoritos/:userId', async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from('favoritos')
+      .select('producto_id, productos(id, nombre_producto, imagenes, precio_normal, precio_oferta)')
+      .eq('usuario_id', req.params.userId)
+      .order('created_at', { ascending: false })
+    if (error) throw error
+    res.json(data)
+  } catch (err) { res.status(500).json({ error: err.message }) }
+})
+
+router.post('/favoritos', async (req, res) => {
+  try {
+    const { usuario_id, producto_id } = req.body
+    if (!usuario_id || !producto_id)
+      return res.status(400).json({ error: 'Faltan campos' })
+    const { error } = await supabase
+      .from('favoritos')
+      .upsert({ usuario_id, producto_id },
+               { onConflict: 'usuario_id,producto_id' })
+    if (error) throw error
+    res.status(201).json({ ok: true })
+  } catch (err) { res.status(500).json({ error: err.message }) }
+})
+
+router.delete('/favoritos/:userId/:productoId', async (req, res) => {
+  try {
+    const { error } = await supabase
+      .from('favoritos')
+      .delete()
+      .eq('usuario_id', req.params.userId)
+      .eq('producto_id', req.params.productoId)
+    if (error) throw error
+    res.json({ ok: true })
+  } catch (err) { res.status(500).json({ error: err.message }) }
+})
+
+router.get('/productos/buscar', async (req, res) => {
+  try {
+    const { nombre } = req.query
+    if (!nombre) return res.status(400).json({ error: 'Falta nombre' })
+    const { data, error } = await supabase
+      .from('productos')
+      .select('id, nombre_producto, imagenes, precio_normal, precio_oferta')
+      .ilike('nombre_producto', `%${nombre}%`)
+      .eq('estado_aprobacion', 'publicado')
+      .limit(5)
+    if (error) throw error
+    res.json(data)
+  } catch (err) { res.status(500).json({ error: err.message }) }
+})
