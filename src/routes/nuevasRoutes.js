@@ -1042,3 +1042,37 @@ router.delete('/carrito/:userId/:productoId', async (req, res) => {
     res.json({ ok: true })
   } catch (err) { res.status(500).json({ error: err.message }) }
 })
+
+// ══════════════════════════════════════════════════════════════
+// SUBIR IMAGEN DE RESEÑA — bucket 'resena' en Supabase Storage
+// Recibe base64 desde Flutter, sube y devuelve la URL pública.
+// ══════════════════════════════════════════════════════════════
+router.post('/resenas/subir-imagen', async (req, res) => {
+  try {
+    const { imagen_base64, usuario_id, extension } = req.body
+    if (!imagen_base64 || !usuario_id) {
+      return res.status(400).json({ error: 'Faltan campos' })
+    }
+
+    const ext = (extension || 'jpg').replace('.', '')
+    const nombreArchivo = `${usuario_id}_${Date.now()}.${ext}`
+    const buffer = Buffer.from(imagen_base64, 'base64')
+
+    const { error: uploadError } = await supabase.storage
+      .from('resena')
+      .upload(nombreArchivo, buffer, {
+        contentType: `image/${ext === 'jpg' ? 'jpeg' : ext}`,
+        upsert: false,
+      })
+
+    if (uploadError) throw uploadError
+
+    const { data: urlData } = supabase.storage
+      .from('resena')
+      .getPublicUrl(nombreArchivo)
+
+    res.status(201).json({ url: urlData.publicUrl })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
