@@ -1103,7 +1103,7 @@ router.post('/resenas/subir-imagen', async (req, res) => {
     const buffer = Buffer.from(imagen_base64, 'base64')
 
     const { error: uploadError } = await supabase.storage
-      .from('resena')
+      .from('resenas')
       .upload(nombreArchivo, buffer, {
         contentType: `image/${ext === 'jpg' ? 'jpeg' : ext}`,
         upsert: false,
@@ -1112,7 +1112,7 @@ router.post('/resenas/subir-imagen', async (req, res) => {
     if (uploadError) throw uploadError
 
     const { data: urlData } = supabase.storage
-      .from('resena')
+      .from('resenas')
       .getPublicUrl(nombreArchivo)
 
     res.status(201).json({ url: urlData.publicUrl })
