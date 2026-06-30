@@ -817,7 +817,21 @@ router.get('/productos', async (req, res) => {
       if (vigente) ofertasPorProducto[o.producto_id] = o
     }
 
-    // Inyectar estado real de oferta flash en cada producto
+    // Calcular unidades vendidas reales — suma de cantidad en
+    // detalle_pedidos para pedidos ya entregados de cada producto.
+    const { data: ventas } = await supabase
+      .from('detalle_pedidos')
+      .select('producto_id, cantidad, pedidos!inner(estado_pedido)')
+      .in('producto_id', ids)
+      .eq('pedidos.estado_pedido', 'entregado')
+
+    const ventasPorProducto = {}
+    for (const v of (ventas ?? [])) {
+      ventasPorProducto[v.producto_id] =
+        (ventasPorProducto[v.producto_id] || 0) + (parseInt(v.cantidad) || 0)
+    }
+
+    // Inyectar estado real de oferta flash y ventas en cada producto
     const resultado = productos.map(p => {
       const oferta = ofertasPorProducto[p.id]
       return {
@@ -828,6 +842,7 @@ router.get('/productos', async (req, res) => {
         tipo_limite:     oferta ? oferta.tipo_limite : null,
         valor_limite:    oferta ? oferta.valor_limite : null,
         usos_actuales:   oferta ? oferta.usos_actuales : null,
+        unidades_vendidas: ventasPorProducto[p.id] || 0,
       }
     })
 
@@ -880,6 +895,24 @@ router.get('/ofertas-flash/activas', async (req, res) => {
       usos_actuales:    o.usos_actuales,
     }))
 
+    if (productos.length > 0) {
+      const ids = productos.map(p => p.id)
+      const { data: ventas } = await supabase
+        .from('detalle_pedidos')
+        .select('producto_id, cantidad, pedidos!inner(estado_pedido)')
+        .in('producto_id', ids)
+        .eq('pedidos.estado_pedido', 'entregado')
+
+      const ventasPorProducto = {}
+      for (const v of (ventas ?? [])) {
+        ventasPorProducto[v.producto_id] =
+          (ventasPorProducto[v.producto_id] || 0) + (parseInt(v.cantidad) || 0)
+      }
+      productos.forEach(p => {
+        p.unidades_vendidas = ventasPorProducto[p.id] || 0
+      })
+    }
+
     res.json(productos)
   } catch (err) {
     res.status(500).json({ error: err.message })
@@ -922,6 +955,16 @@ router.get('/productos/:id', async (req, res) => {
       } else vigente = true
     }
 
+    // Unidades vendidas reales (pedidos entregados)
+    const { data: ventas } = await supabase
+      .from('detalle_pedidos')
+      .select('cantidad, pedidos!inner(estado_pedido)')
+      .eq('producto_id', req.params.id)
+      .eq('pedidos.estado_pedido', 'entregado')
+
+    const unidadesVendidas = (ventas ?? [])
+      .reduce((sum, v) => sum + (parseInt(v.cantidad) || 0), 0)
+
     res.json({
       ...data,
       es_oferta_flash: vigente,
@@ -929,6 +972,7 @@ router.get('/productos/:id', async (req, res) => {
       tipo_limite:     vigente ? oferta.tipo_limite : null,
       valor_limite:    vigente ? oferta.valor_limite : null,
       usos_actuales:   vigente ? oferta.usos_actuales : null,
+      unidades_vendidas: unidadesVendidas,
     })
   } catch (err) {
     res.status(500).json({ error: err.message })
