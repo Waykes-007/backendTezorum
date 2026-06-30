@@ -3,12 +3,13 @@ const cors             = require('cors');
 const apiRoutes        = require('./routes/api');
 const webhookRoutes    = require('./routes/webhooks');
 const locationRoutes   = require('./routes/locationRoutes');
-const flashRoutes      = require('./routes/flashRoutes');
 const adminRoutes      = require('./routes/adminRoutes');
 const planRoutes       = require('./routes/planRoutes');
 const subUsuarioRoutes = require('./routes/subUsuarioRoutes');
 const sharfRoutes      = require('./routes/sharfRoutes');      // ← corregido
 const nuevasRoutes     = require('./routes/nuevasRoutes');     // ← nuevo
+const supabase         = require('./config/supabase');
+const { iniciarJobExpiracion } = require('./jobs/expirarOfertasFlash');
 
 const app = express();
 
@@ -38,12 +39,16 @@ app.use('/api',       nuevasRoutes);
 app.use('/api',       apiRoutes);
 app.use('/webhooks',  webhookRoutes);
 app.use('/api/ubicacion',    locationRoutes);
-app.use('/api/ofertas-flash', flashRoutes);
 
 // Manejo de errores
 app.use((err, req, res, next) => {
     console.error(err.stack);
     res.status(500).json({ message: 'Algo salió mal en el servidor' });
 });
+
+// ── Job de expiración automática de ofertas flash ──────────
+// Revisa cada 30s ofertas vencidas (por tiempo o agotadas por
+// cantidad) y las desactiva + limpia precio_flash del producto.
+iniciarJobExpiracion(supabase, 30000);
 
 module.exports = app;

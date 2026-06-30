@@ -566,20 +566,43 @@ module.exports = router
 
 router.get('/promociones', async (req, res) => {
   try {
-    // ── Flash: productos con es_oferta_flash = true ─────────
+    const ahora = new Date().toISOString()
+
+    // ── Flash: SOLO ofertas con registro activo en ofertas_flash ──
     const { data: flashData } = await supabase
-      .from('productos')
-      .select('id, nombre_producto, imagenes, precio_normal, precio_oferta, precio_flash, tiendas(nombre_tienda)')
-      .eq('es_oferta_flash', true)
-      .eq('estado_aprobacion', 'publicado')
+      .from('ofertas_flash')
+      .select(`
+        id, producto_id, tipo_limite, valor_limite, usos_actuales,
+        precio_oferta, activa,
+        productos(id, nombre_producto, imagenes, precio_normal, estado_aprobacion)
+      `)
+      .eq('activa', true)
       .limit(20)
 
-    const flash = (flashData ?? []).map(p => ({
-      producto_id:      p.id,
-      nombre:           p.nombre_producto,
-      imagen:           Array.isArray(p.imagenes) && p.imagenes.length > 0 ? p.imagenes[0] : null,
-      precio_normal:    parseFloat(p.precio_normal) || 0,
-      precio_promocion: parseFloat(p.precio_flash ?? p.precio_oferta ?? p.precio_normal) || 0,
+    // Filtrar: producto debe estar publicado, y si es por tiempo no debe haber expirado
+    const flashVigentes = (flashData ?? []).filter(o => {
+      if (!o.productos || o.productos.estado_aprobacion !== 'publicado') return false
+      if (o.tipo_limite === 'tiempo') {
+        return new Date(o.valor_limite) > new Date()
+      }
+      if (o.tipo_limite === 'cantidad') {
+        const limite = parseInt(o.valor_limite) || 0
+        return o.usos_actuales < limite
+      }
+      return true
+    })
+
+    const flash = flashVigentes.map(o => ({
+      producto_id:      o.productos.id,
+      nombre:           o.productos.nombre_producto,
+      imagen:           Array.isArray(o.productos.imagenes) && o.productos.imagenes.length > 0
+                          ? o.productos.imagenes[0] : null,
+      precio_normal:    parseFloat(o.productos.precio_normal) || 0,
+      precio_promocion: parseFloat(o.precio_oferta) || 0,
+      tipo_limite:      o.tipo_limite,
+      valor_limite:     o.valor_limite,
+      usos_actuales:    o.usos_actuales,
+      oferta_flash_id:  o.id,
     }))
 
     // ── Con oferta: productos con precio_oferta < precio_normal ─
@@ -608,7 +631,6 @@ router.get('/promociones', async (req, res) => {
       .eq('estado_aprobacion', 'publicado')
       .limit(12)
 
-    // Si no hay marcados como más vendidos, usar los que tienen mayor calificación
     let mas_vendidos = (topData ?? []).map(p => ({
       producto_id:      p.id,
       nombre:           p.nombre_producto,
@@ -667,7 +689,7 @@ router.get('/promociones', async (req, res) => {
 
     res.json({
       flash,
-      con_oferta,   // productos con precio_oferta activo
+      con_oferta,
       mas_vendidos,
       liquidacion,
       gancho,
@@ -771,7 +793,45 @@ router.get('/productos', async (req, res) => {
 
     const { data, error } = await query
     if (error) throw error
-    res.json(data ?? [])
+
+    const productos = data ?? []
+    if (productos.length === 0) return res.json([])
+
+    // Buscar ofertas_flash REALMENTE activas para estos productos
+    const ids = productos.map(p => p.id)
+    const { data: ofertas } = await supabase
+      .from('ofertas_flash')
+      .select('id, producto_id, tipo_limite, valor_limite, usos_actuales, precio_oferta, activa')
+      .eq('activa', true)
+      .in('producto_id', ids)
+
+    const ofertasPorProducto = {}
+    for (const o of (ofertas ?? [])) {
+      // Validar vigencia
+      let vigente = true
+      if (o.tipo_limite === 'tiempo') vigente = new Date(o.valor_limite) > new Date()
+      if (o.tipo_limite === 'cantidad') {
+        const limite = parseInt(o.valor_limite) || 0
+        vigente = o.usos_actuales < limite
+      }
+      if (vigente) ofertasPorProducto[o.producto_id] = o
+    }
+
+    // Inyectar estado real de oferta flash en cada producto
+    const resultado = productos.map(p => {
+      const oferta = ofertasPorProducto[p.id]
+      return {
+        ...p,
+        es_oferta_flash: !!oferta,
+        precio_flash:    oferta ? parseFloat(oferta.precio_oferta) : null,
+        oferta_flash_id: oferta ? oferta.id : null,
+        tipo_limite:     oferta ? oferta.tipo_limite : null,
+        valor_limite:    oferta ? oferta.valor_limite : null,
+        usos_actuales:   oferta ? oferta.usos_actuales : null,
+      }
+    })
+
+    res.json(resultado)
   } catch (err) {
     res.status(500).json({ error: err.message })
   }
@@ -782,21 +842,203 @@ router.get('/productos', async (req, res) => {
 // ══════════════════════════════════════════════════════════════
 router.get('/ofertas-flash/activas', async (req, res) => {
   try {
-    // Primero buscar productos marcados como es_oferta_flash
+    // Solo ofertas con registro REAL y activo en ofertas_flash
     const { data, error } = await supabase
-      .from('productos')
+      .from('ofertas_flash')
       .select(`
-        id, nombre_producto, precio_normal, precio_oferta, precio_flash,
-        imagenes, calificacion_promedio, stock_disponible, estado_aprobacion,
-        tienda_id, tiendas(id, nombre_tienda)
+        id, producto_id, tipo_limite, valor_limite, usos_actuales, precio_oferta, activa,
+        productos(
+          id, nombre_producto, precio_normal, precio_oferta, imagenes,
+          calificacion_promedio, stock_disponible, estado_aprobacion,
+          tienda_id, tiendas(id, nombre_tienda)
+        )
       `)
-      .eq('es_oferta_flash', true)
-      .eq('estado_aprobacion', 'publicado')
+      .eq('activa', true)
       .limit(20)
 
     if (error) throw error
-    res.json(data ?? [])
+
+    // Filtrar vigentes (no expiradas por tiempo, no agotadas por cantidad)
+    const vigentes = (data ?? []).filter(o => {
+      if (!o.productos || o.productos.estado_aprobacion !== 'publicado') return false
+      if (o.tipo_limite === 'tiempo') return new Date(o.valor_limite) > new Date()
+      if (o.tipo_limite === 'cantidad') {
+        const limite = parseInt(o.valor_limite) || 0
+        return o.usos_actuales < limite
+      }
+      return true
+    })
+
+    // Formato compatible con WaykesProduct.fromJson — inyectar precio_flash y datos de oferta
+    const productos = vigentes.map(o => ({
+      ...o.productos,
+      precio_flash:     parseFloat(o.precio_oferta),
+      es_oferta_flash:  true,
+      oferta_flash_id:  o.id,
+      tipo_limite:      o.tipo_limite,
+      valor_limite:     o.valor_limite,
+      usos_actuales:    o.usos_actuales,
+    }))
+
+    res.json(productos)
   } catch (err) {
     res.status(500).json({ error: err.message })
   }
+})
+
+// ══════════════════════════════════════════════════════════════
+// GET /api/productos/:id — detalle individual con descripción real
+// ══════════════════════════════════════════════════════════════
+router.get('/productos/:id', async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from('productos')
+      .select(`
+        id, nombre_producto, descripcion, precio_normal, precio_oferta,
+        precio_flash, imagenes, calificacion_promedio, stock_disponible,
+        estado_aprobacion, tienda_id, es_oferta_flash, es_mas_vendido,
+        tiendas(id, nombre_tienda)
+      `)
+      .eq('id', req.params.id)
+      .single()
+
+    if (error) throw error
+    if (!data) return res.status(404).json({ error: 'Producto no encontrado' })
+
+    // Inyectar estado real de oferta flash vigente
+    const { data: oferta } = await supabase
+      .from('ofertas_flash')
+      .select('id, tipo_limite, valor_limite, usos_actuales, precio_oferta, activa')
+      .eq('producto_id', req.params.id)
+      .eq('activa', true)
+      .maybeSingle()
+
+    let vigente = false
+    if (oferta) {
+      if (oferta.tipo_limite === 'tiempo') vigente = new Date(oferta.valor_limite) > new Date()
+      else if (oferta.tipo_limite === 'cantidad') {
+        const limite = parseInt(oferta.valor_limite) || 0
+        vigente = oferta.usos_actuales < limite
+      } else vigente = true
+    }
+
+    res.json({
+      ...data,
+      es_oferta_flash: vigente,
+      precio_flash:    vigente ? parseFloat(oferta.precio_oferta) : null,
+      tipo_limite:     vigente ? oferta.tipo_limite : null,
+      valor_limite:    vigente ? oferta.valor_limite : null,
+      usos_actuales:   vigente ? oferta.usos_actuales : null,
+    })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// ══════════════════════════════════════════════════════════════
+// CARRITO — obtener, agregar, eliminar (con precio_final calculado)
+// ══════════════════════════════════════════════════════════════
+
+// Calcula el precio vigente de un producto: flash > oferta > normal
+async function calcularPrecioFinal(producto) {
+  const precioNormal = parseFloat(producto.precio_normal) || 0
+  const precioOferta = parseFloat(producto.precio_oferta) || 0
+  const precioFlash  = parseFloat(producto.precio_flash) || 0
+
+  // Buscar si hay oferta_flash REALMENTE activa y vigente
+  const { data: oferta } = await supabase
+    .from('ofertas_flash')
+    .select('tipo_limite, valor_limite, usos_actuales, precio_oferta, activa')
+    .eq('producto_id', producto.id)
+    .eq('activa', true)
+    .maybeSingle()
+
+  let vigente = false
+  if (oferta) {
+    if (oferta.tipo_limite === 'tiempo') vigente = new Date(oferta.valor_limite) > new Date()
+    else if (oferta.tipo_limite === 'cantidad') {
+      const limite = parseInt(oferta.valor_limite) || 0
+      vigente = oferta.usos_actuales < limite
+    } else vigente = true
+  }
+
+  if (vigente && oferta) {
+    return { precio_final: parseFloat(oferta.precio_oferta), tiene_oferta_flash: true }
+  }
+  if (precioOferta > 0 && precioOferta < precioNormal) {
+    return { precio_final: precioOferta, tiene_oferta_flash: false }
+  }
+  return { precio_final: precioNormal, tiene_oferta_flash: false }
+}
+
+router.get('/carrito/:userId', async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from('carrito')
+      .select(`
+        id, producto_id, cantidad,
+        productos(id, nombre_producto, precio_normal, precio_oferta, precio_flash, imagenes)
+      `)
+      .eq('usuario_id', req.params.userId)
+
+    if (error) throw error
+
+    // Inyectar precio_final calculado para cada ítem
+    const resultado = await Promise.all((data ?? []).map(async (item) => {
+      if (!item.productos) return item
+      const { precio_final, tiene_oferta_flash } = await calcularPrecioFinal(item.productos)
+      return {
+        ...item,
+        productos: {
+          ...item.productos,
+          precio_final,
+          tiene_oferta_flash,
+        },
+      }
+    }))
+
+    res.json(resultado)
+  } catch (err) { res.status(500).json({ error: err.message }) }
+})
+
+router.post('/carrito/agregar', async (req, res) => {
+  try {
+    const { usuario_id, producto_id, cantidad } = req.body
+    if (!usuario_id || !producto_id)
+      return res.status(400).json({ error: 'Faltan campos' })
+
+    const { data: existente } = await supabase
+      .from('carrito')
+      .select('id, cantidad')
+      .eq('usuario_id', usuario_id)
+      .eq('producto_id', producto_id)
+      .maybeSingle()
+
+    if (existente) {
+      const { error } = await supabase
+        .from('carrito')
+        .update({ cantidad: parseInt(cantidad) || existente.cantidad + 1 })
+        .eq('id', existente.id)
+      if (error) throw error
+    } else {
+      const { error } = await supabase
+        .from('carrito')
+        .insert([{ usuario_id, producto_id, cantidad: parseInt(cantidad) || 1 }])
+      if (error) throw error
+    }
+
+    res.status(201).json({ ok: true })
+  } catch (err) { res.status(500).json({ error: err.message }) }
+})
+
+router.delete('/carrito/:userId/:productoId', async (req, res) => {
+  try {
+    const { error } = await supabase
+      .from('carrito')
+      .delete()
+      .eq('usuario_id', req.params.userId)
+      .eq('producto_id', req.params.productoId)
+    if (error) throw error
+    res.json({ ok: true })
+  } catch (err) { res.status(500).json({ error: err.message }) }
 })
