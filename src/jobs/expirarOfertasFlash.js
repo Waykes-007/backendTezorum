@@ -42,10 +42,10 @@ async function expirarOfertasFlash(supabase) {
       .update({ activa: false })
       .in('id', idsOfertas);
 
-    // Limpiar precio_flash de los productos afectados
+    // Limpiar precio_flash Y es_oferta_flash de los productos afectados
     await supabase
       .from('productos')
-      .update({ precio_flash: null })
+      .update({ precio_flash: null, es_oferta_flash: false })
       .in('id', idsProductos);
 
     console.log(`[expirarOfertasFlash] ${todasExpiradas.length} oferta(s) expirada(s) y desactivada(s)`);
