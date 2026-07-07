@@ -169,6 +169,10 @@ const shopController = {
       return res.status(500).json({ error: e.message });
     }
   },
+
+  // ── Perfil PÚBLICO de la tienda (de cara al cliente) ──────────────────────
+  // Devuelve solo datos seguros + productos publicados + stats + reseñas.
+  // NUNCA exponer aquí: RUC, DNI, direcciones, datos bancarios, email, whatsapp.
   async getTienda(req, res) {
     const { id } = req.params;
     console.log('🏪 Buscando tienda:', id);
@@ -188,17 +192,64 @@ const shopController = {
         return res.status(500).json({ error: error.message });
       }
 
+      // Productos publicados de la tienda
       const { data: productos, error: errorProductos } = await supabase
         .from('productos')
         .select(`
           id, nombre_producto, precio_normal, precio_oferta,
-          imagenes, calificacion_promedio, stock_disponible
+          imagenes, calificacion_promedio, stock_disponible,
+          tienda_id, tiempo_garantia
         `)
         .eq('tienda_id', id)
         .eq('estado_aprobacion', 'publicado');
 
-      console.log('📦 Productos encontrados:', productos?.length);
-      console.log('❌ Error productos:', errorProductos?.message);
+      if (errorProductos) console.error('❌ Error productos:', errorProductos.message);
+
+      const listaProductos = productos ?? [];
+      const productoIds    = listaProductos.map(p => p.id);
+
+      // ── Reseñas de todos los productos de la tienda ──
+      let resenas       = [];
+      let totalResenas  = 0;
+      let ratingTienda  = 0;
+
+      if (productoIds.length > 0) {
+        const { data: resenasData } = await supabase
+          .from('resenas')
+          .select('id, producto_id, usuario_id, calificacion, comentario, imagenes, fecha_creacion, usuarios(nombre_completo)')
+          .in('producto_id', productoIds)
+          .order('fecha_creacion', { ascending: false });
+
+        const todas = resenasData ?? [];
+        totalResenas = todas.length;
+        if (totalResenas > 0) {
+          ratingTienda = todas.reduce(
+            (s, r) => s + (parseFloat(r.calificacion) || 0), 0
+          ) / totalResenas;
+        }
+        // Nombre del producto en cada reseña (para mostrarlo en la tab)
+        const mapaNombres = {};
+        listaProductos.forEach(p => { mapaNombres[p.id] = p.nombre_producto; });
+        // Solo las 20 más recientes viajan al cliente
+        resenas = todas.slice(0, 20).map(r => ({
+          ...r,
+          nombre_producto: mapaNombres[r.producto_id] ?? null,
+        }));
+      }
+
+      // ── Total de unidades vendidas (pedidos entregados) ──
+      let totalVentas = 0;
+      if (productoIds.length > 0) {
+        const { data: vendidos } = await supabase
+          .from('detalle_pedidos')
+          .select('cantidad, producto_id, pedidos!inner(estado_pedido)')
+          .in('producto_id', productoIds)
+          .eq('pedidos.estado_pedido', 'entregado');
+
+        totalVentas = (vendidos ?? []).reduce(
+          (s, d) => s + (parseInt(d.cantidad) || 0), 0
+        );
+      }
 
       const fechaInicio = tienda.fecha_inicio
         ? new Date(tienda.fecha_inicio) : new Date();
@@ -209,7 +260,14 @@ const shopController = {
       return res.json({
         ...tienda,
         anios_vendiendo: aniosVendiendo,
-        productos: productos ?? [],
+        productos:       listaProductos,
+        resenas,
+        stats: {
+          total_productos:       listaProductos.length,
+          total_resenas:         totalResenas,
+          calificacion_promedio: parseFloat(ratingTienda.toFixed(1)),
+          total_ventas:          totalVentas,
+        },
       });
     } catch (e) {
       console.error('🚨 Error getTienda:', e.message);
