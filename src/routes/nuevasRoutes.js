@@ -791,6 +791,36 @@ router.get('/usuarios/:userId/notificaciones', async (req, res) => {
   }
 })
 
+// Marcar UNA notificación como leída
+router.patch('/usuarios/notificaciones/:id/leer', async (req, res) => {
+  const { id } = req.params
+  try {
+    const { error } = await supabase
+      .from('notificaciones_usuario')
+      .update({ leida: true })
+      .eq('id', id)
+    if (error) throw error
+    return res.json({ message: 'Notificación leída ✅' })
+  } catch (e) {
+    return res.status(500).json({ error: e.message })
+  }
+})
+
+// Eliminar UNA notificación
+router.delete('/usuarios/notificaciones/:id', async (req, res) => {
+  const { id } = req.params
+  try {
+    const { error } = await supabase
+      .from('notificaciones_usuario')
+      .delete()
+      .eq('id', id)
+    if (error) throw error
+    return res.json({ message: 'Notificación eliminada ✅' })
+  } catch (e) {
+    return res.status(500).json({ error: e.message })
+  }
+})
+
 // Marcar TODAS las notificaciones del usuario como leídas
 router.patch('/usuarios/:userId/notificaciones/leer', async (req, res) => {
   const { userId } = req.params
