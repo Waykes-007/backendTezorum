@@ -803,6 +803,7 @@ router.get('/productos', async (req, res) => {
         precio_flash, imagenes, calificacion_promedio, stock_disponible,
         estado_aprobacion, tienda_id, categoria_id, subcategoria_id,
         es_oferta_flash, es_mas_vendido,
+        subcategorias(id, nombre),
         tiendas(id, nombre_tienda, tienda_verificada, es_vendedor_oro)
       `)
       .eq('estado_aprobacion', estado)
@@ -958,6 +959,7 @@ router.get('/productos/:id', async (req, res) => {
         precio_flash, imagenes, calificacion_promedio, stock_disponible,
         estado_aprobacion, tienda_id, categoria_id, subcategoria_id,
         es_oferta_flash, es_mas_vendido,
+        subcategorias(id, nombre),
         tiendas(id, nombre_tienda, tienda_verificada, es_vendedor_oro)
       `)
       .eq('id', req.params.id)
