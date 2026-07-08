@@ -783,7 +783,7 @@ router.get('/productos', async (req, res) => {
         id, nombre_producto, descripcion, precio_normal, precio_oferta,
         precio_flash, imagenes, calificacion_promedio, stock_disponible,
         estado_aprobacion, tienda_id, es_oferta_flash, es_mas_vendido,
-        tiendas(id, nombre_tienda)
+        tiendas(id, nombre_tienda, tienda_verificada, es_vendedor_oro)
       `)
       .eq('estado_aprobacion', estado)
       .range(parseInt(offset), parseInt(offset) + parseInt(limit) - 1)
@@ -865,7 +865,7 @@ router.get('/ofertas-flash/activas', async (req, res) => {
         productos(
           id, nombre_producto, precio_normal, precio_oferta, imagenes,
           calificacion_promedio, stock_disponible, estado_aprobacion,
-          tienda_id, tiendas(id, nombre_tienda)
+          tienda_id, tiendas(id, nombre_tienda, tienda_verificada, es_vendedor_oro)
         )
       `)
       .eq('activa', true)
@@ -930,7 +930,7 @@ router.get('/productos/:id', async (req, res) => {
         id, nombre_producto, descripcion, precio_normal, precio_oferta,
         precio_flash, imagenes, calificacion_promedio, stock_disponible,
         estado_aprobacion, tienda_id, es_oferta_flash, es_mas_vendido,
-        tiendas(id, nombre_tienda)
+        tiendas(id, nombre_tienda, tienda_verificada, es_vendedor_oro)
       `)
       .eq('id', req.params.id)
       .single()
