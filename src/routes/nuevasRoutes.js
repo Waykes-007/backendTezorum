@@ -771,18 +771,38 @@ router.get('/productos/buscar', async (req, res) => {
 // ══════════════════════════════════════════════════════════════
 
 // ══════════════════════════════════════════════════════════════
+// GET /api/categorias — categorías reales con sus subcategorías
+// (para la pantalla de Categorías de la app)
+// ══════════════════════════════════════════════════════════════
+router.get('/categorias', async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from('categorias')
+      .select('id, nombre, subcategorias(id, nombre)')
+      .order('nombre', { ascending: true })
+
+    if (error) throw error
+    return res.json(data ?? [])
+  } catch (e) {
+    console.error('Error en /categorias:', e.message)
+    return res.status(500).json({ error: e.message })
+  }
+})
+
+// ══════════════════════════════════════════════════════════════
 // GET /api/productos — con join de tiendas para tiendaNombre
 // ══════════════════════════════════════════════════════════════
 router.get('/productos', async (req, res) => {
   try {
-    const { limit = 20, offset = 0, estado = 'publicado', tiendaId } = req.query
+    const { limit = 20, offset = 0, estado = 'publicado', tiendaId, categoriaId, subcategoriaId } = req.query
 
     let query = supabase
       .from('productos')
       .select(`
         id, nombre_producto, descripcion, precio_normal, precio_oferta,
         precio_flash, imagenes, calificacion_promedio, stock_disponible,
-        estado_aprobacion, tienda_id, es_oferta_flash, es_mas_vendido,
+        estado_aprobacion, tienda_id, categoria_id, subcategoria_id,
+        es_oferta_flash, es_mas_vendido,
         tiendas(id, nombre_tienda, tienda_verificada, es_vendedor_oro)
       `)
       .eq('estado_aprobacion', estado)
@@ -794,7 +814,9 @@ router.get('/productos', async (req, res) => {
       .order('tiendas(es_vendedor_oro)', { ascending: false, nullsFirst: false })
       .order('fecha_creacion', { ascending: false })
 
-    if (tiendaId) query = query.eq('tienda_id', tiendaId)
+    if (tiendaId)       query = query.eq('tienda_id', tiendaId)
+    if (categoriaId)    query = query.eq('categoria_id', parseInt(categoriaId))
+    if (subcategoriaId) query = query.eq('subcategoria_id', parseInt(subcategoriaId))
 
     const { data, error } = await query
     if (error) throw error
@@ -934,7 +956,8 @@ router.get('/productos/:id', async (req, res) => {
       .select(`
         id, nombre_producto, descripcion, precio_normal, precio_oferta,
         precio_flash, imagenes, calificacion_promedio, stock_disponible,
-        estado_aprobacion, tienda_id, es_oferta_flash, es_mas_vendido,
+        estado_aprobacion, tienda_id, categoria_id, subcategoria_id,
+        es_oferta_flash, es_mas_vendido,
         tiendas(id, nombre_tienda, tienda_verificada, es_vendedor_oro)
       `)
       .eq('id', req.params.id)
