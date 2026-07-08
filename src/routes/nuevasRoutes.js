@@ -787,6 +787,11 @@ router.get('/productos', async (req, res) => {
       `)
       .eq('estado_aprobacion', estado)
       .range(parseInt(offset), parseInt(offset) + parseInt(limit) - 1)
+      // ⭐ Prioridad Plan Oro: los productos de tiendas Oro aparecen
+      // primero en el feed (beneficio "Primeras posiciones").
+      // El orden se aplica en la query (no en la app) para que la
+      // paginación funcione correctamente desde la página 1.
+      .order('tiendas(es_vendedor_oro)', { ascending: false, nullsFirst: false })
       .order('fecha_creacion', { ascending: false })
 
     if (tiendaId) query = query.eq('tienda_id', tiendaId)
