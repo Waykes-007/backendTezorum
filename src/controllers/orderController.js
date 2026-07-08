@@ -386,6 +386,24 @@ const orderController = {
         console.error('⚠️ Error ticket:', ticketErr.message);
       }
 
+      // ── 19. Notificación en la app para el cliente ───────────────────────
+      // (las notificaciones de cambios de estado posteriores las genera
+      // el trigger tr_notificar_estado_pedido directamente en la BD)
+      const { error: errNotifCliente } = await supabase
+        .from('notificaciones_usuario').insert([{
+          usuario_id,
+          titulo:  '🎉 ¡Pedido confirmado!',
+          mensaje: `Tu pedido ${codigoPedido} fue registrado` +
+                   (totalPaquetes > 1 ? ` en ${totalPaquetes} paquetes` : '') +
+                   '. Te avisaremos cuando esté en camino.',
+          tipo:    'pedido',
+        }]);
+      if (errNotifCliente) {
+        console.error('⚠️ Error notificación cliente:', errNotifCliente.message);
+      } else {
+        console.log('🔔 Notificación al cliente creada');
+      }
+
       console.log('🎉 Pedido completado:', codigoPedido);
       return res.status(201).json({
         message:  'Pedido registrado con éxito ✅',

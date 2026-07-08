@@ -771,6 +771,102 @@ router.get('/productos/buscar', async (req, res) => {
 // ══════════════════════════════════════════════════════════════
 
 // ══════════════════════════════════════════════════════════════
+// Notificaciones del CLIENTE (tabla notificaciones_usuario)
+// ══════════════════════════════════════════════════════════════
+// Listar las últimas 50 notificaciones del usuario
+router.get('/usuarios/:userId/notificaciones', async (req, res) => {
+  const { userId } = req.params
+  try {
+    const { data, error } = await supabase
+      .from('notificaciones_usuario')
+      .select('id, titulo, mensaje, tipo, leida, fecha_creacion')
+      .eq('usuario_id', userId)
+      .order('fecha_creacion', { ascending: false })
+      .limit(50)
+    if (error) throw error
+    return res.json(data ?? [])
+  } catch (e) {
+    console.error('Error listando notificaciones:', e.message)
+    return res.status(500).json({ error: e.message })
+  }
+})
+
+// Marcar TODAS las notificaciones del usuario como leídas
+router.patch('/usuarios/:userId/notificaciones/leer', async (req, res) => {
+  const { userId } = req.params
+  try {
+    const { error } = await supabase
+      .from('notificaciones_usuario')
+      .update({ leida: true })
+      .eq('usuario_id', userId)
+      .eq('leida', false)
+    if (error) throw error
+    return res.json({ message: 'Notificaciones marcadas como leídas ✅' })
+  } catch (e) {
+    console.error('Error marcando notificaciones:', e.message)
+    return res.status(500).json({ error: e.message })
+  }
+})
+
+// ══════════════════════════════════════════════════════════════
+// GET /api/usuarios/:userId/stats — estadísticas reales del perfil
+// (pedidos, notificaciones no leídas y nivel de cliente)
+// ══════════════════════════════════════════════════════════════
+router.get('/usuarios/:userId/stats', async (req, res) => {
+  const { userId } = req.params
+  try {
+    // Total de pedidos del usuario
+    const { count: pedidosTotal } = await supabase
+      .from('pedidos')
+      .select('id', { count: 'exact', head: true })
+      .eq('usuario_id', userId)
+
+    // Pedidos activos (aún no entregados ni cancelados)
+    const { count: pedidosActivos } = await supabase
+      .from('pedidos')
+      .select('id', { count: 'exact', head: true })
+      .eq('usuario_id', userId)
+      .not('estado_pedido', 'in', '(entregado,cancelado)')
+
+    // Pedidos entregados → definen el nivel del cliente
+    const { count: pedidosEntregados } = await supabase
+      .from('pedidos')
+      .select('id', { count: 'exact', head: true })
+      .eq('usuario_id', userId)
+      .eq('estado_pedido', 'entregado')
+
+    // Notificaciones no leídas del CLIENTE (tabla notificaciones_usuario;
+    // la tabla `notificaciones` a secas es exclusiva de vendedores)
+    const { count: notificacionesNoLeidas } = await supabase
+      .from('notificaciones_usuario')
+      .select('id', { count: 'exact', head: true })
+      .eq('usuario_id', userId)
+      .eq('leida', false)
+
+    // Nivel de cliente derivado de compras reales entregadas
+    const entregados = pedidosEntregados ?? 0
+    const nivel = entregados >= 10 ? 'Cliente Premium'
+                : entregados >= 3  ? 'Cliente Frecuente'
+                : 'Cliente Waykes'
+    const nivelEmoji = entregados >= 10 ? '👑'
+                     : entregados >= 3  ? '⭐'
+                     : '🛍️'
+
+    return res.json({
+      pedidos_total:            pedidosTotal ?? 0,
+      pedidos_activos:          pedidosActivos ?? 0,
+      pedidos_entregados:       entregados,
+      notificaciones_no_leidas: notificacionesNoLeidas ?? 0,
+      nivel,
+      nivel_emoji: nivelEmoji,
+    })
+  } catch (e) {
+    console.error('Error en /usuarios/:userId/stats:', e.message)
+    return res.status(500).json({ error: e.message })
+  }
+})
+
+// ══════════════════════════════════════════════════════════════
 // GET /api/categorias — categorías reales con sus subcategorías
 // (para la pantalla de Categorías de la app)
 // ══════════════════════════════════════════════════════════════
