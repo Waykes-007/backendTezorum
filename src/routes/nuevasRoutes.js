@@ -747,9 +747,10 @@ router.get('/favoritos/:userId', async (req, res) => {
     const { data, error } = await supabase
       .from('favoritos')
       .select(`producto_id, productos(
-        id, nombre_producto, imagenes, precio_normal, precio_oferta, precio_flash,
-        calificacion_promedio, unidades_vendidas, stock_disponible, estado_aprobacion,
-        es_oferta_flash, tienda_id, tipo_limite, valor_limite, usos_actuales,
+        id, nombre_producto, descripcion, precio_normal, precio_oferta,
+        precio_flash, imagenes, calificacion_promedio, stock_disponible,
+        estado_aprobacion, tienda_id, categoria_id, subcategoria_id,
+        es_oferta_flash, es_mas_vendido,
         tiendas(id, nombre_tienda, tienda_verificada, es_vendedor_oro)
       )`)
       .eq('usuario_id', req.params.userId)
