@@ -9,6 +9,27 @@ const supabase      = require('../config/supabase')
 const walletService = require('../services/walletService')
 
 // ══════════════════════════════════════════════════════════════
+// UBICACIÓN GEOGRÁFICA (cascada Departamento → Provincia → Distrito)
+// ══════════════════════════════════════════════════════════════
+router.get('/ubicacion/departamentos', async (req, res) => {
+  const { data, error } = await supabase.from('departamentos').select('*').order('departamento')
+  if (error) return res.status(500).json({ error: error.message })
+  res.json(data ?? [])
+})
+router.get('/ubicacion/provincias/:depId', async (req, res) => {
+  const { data, error } = await supabase.from('provincias').select('*')
+    .eq('departamento_id', req.params.depId).order('provincia')
+  if (error) return res.status(500).json({ error: error.message })
+  res.json(data ?? [])
+})
+router.get('/ubicacion/distritos/:provId', async (req, res) => {
+  const { data, error } = await supabase.from('distritos').select('*')
+    .eq('provincia_id', req.params.provId).order('distrito')
+  if (error) return res.status(500).json({ error: error.message })
+  res.json(data ?? [])
+})
+
+// ══════════════════════════════════════════════════════════════
 // DIRECCIONES
 // ══════════════════════════════════════════════════════════════
 
@@ -27,7 +48,9 @@ router.get('/direcciones/:userId', async (req, res) => {
 
 router.post('/direcciones', async (req, res) => {
   try {
-    const { usuario_id, label, nombre, direccion, distrito, telefono, is_default } = req.body
+    const { usuario_id, label, nombre, direccion, distrito, telefono, is_default,
+            departamento_id, provincia_id, distrito_id, referencia,
+            telefono_secundario, dni_receptor, indicaciones_entrega } = req.body
     if (!usuario_id || !nombre || !direccion || !distrito || !telefono)
       return res.status(400).json({ error: 'Faltan campos requeridos' })
     if (is_default) {
@@ -36,7 +59,12 @@ router.post('/direcciones', async (req, res) => {
     }
     const { data, error } = await supabase
       .from('direcciones_usuario')
-      .insert({ usuario_id, label: label ?? 'Casa', nombre, direccion, distrito, telefono, is_default: !!is_default })
+      .insert({ usuario_id, label: label ?? 'Casa', nombre, direccion, distrito, telefono,
+                is_default: !!is_default,
+                departamento_id: departamento_id ?? null, provincia_id: provincia_id ?? null,
+                distrito_id: distrito_id ?? null, referencia: referencia ?? null,
+                telefono_secundario: telefono_secundario ?? null, dni_receptor: dni_receptor ?? null,
+                indicaciones_entrega: indicaciones_entrega ?? null })
       .select().single()
     if (error) throw error
     res.status(201).json(data)
@@ -45,14 +73,20 @@ router.post('/direcciones', async (req, res) => {
 
 router.put('/direcciones/:id', async (req, res) => {
   try {
-    const { usuario_id, label, nombre, direccion, distrito, telefono, is_default } = req.body
+    const { usuario_id, label, nombre, direccion, distrito, telefono, is_default,
+            departamento_id, provincia_id, distrito_id, referencia,
+            telefono_secundario, dni_receptor, indicaciones_entrega } = req.body
     if (is_default) {
       await supabase.from('direcciones_usuario')
         .update({ is_default: false }).eq('usuario_id', usuario_id)
     }
     const { data, error } = await supabase
       .from('direcciones_usuario')
-      .update({ label, nombre, direccion, distrito, telefono, is_default: !!is_default })
+      .update({ label, nombre, direccion, distrito, telefono, is_default: !!is_default,
+                departamento_id: departamento_id ?? null, provincia_id: provincia_id ?? null,
+                distrito_id: distrito_id ?? null, referencia: referencia ?? null,
+                telefono_secundario: telefono_secundario ?? null, dni_receptor: dni_receptor ?? null,
+                indicaciones_entrega: indicaciones_entrega ?? null })
       .eq('id', req.params.id).select().single()
     if (error) throw error
     res.json(data)
