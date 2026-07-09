@@ -386,24 +386,6 @@ const orderController = {
         console.error('⚠️ Error ticket:', ticketErr.message);
       }
 
-      // ── 19. Notificación en la app para el cliente ───────────────────────
-      // (las notificaciones de cambios de estado posteriores las genera
-      // el trigger tr_notificar_estado_pedido directamente en la BD)
-      const { error: errNotifCliente } = await supabase
-        .from('notificaciones_usuario').insert([{
-          usuario_id,
-          titulo:  '🎉 ¡Pedido confirmado!',
-          mensaje: `Tu pedido ${codigoPedido} fue registrado` +
-                   (totalPaquetes > 1 ? ` en ${totalPaquetes} paquetes` : '') +
-                   '. Te avisaremos cuando esté en camino.',
-          tipo:    'pedido',
-        }]);
-      if (errNotifCliente) {
-        console.error('⚠️ Error notificación cliente:', errNotifCliente.message);
-      } else {
-        console.log('🔔 Notificación al cliente creada');
-      }
-
       console.log('🎉 Pedido completado:', codigoPedido);
       return res.status(201).json({
         message:  'Pedido registrado con éxito ✅',
@@ -420,12 +402,24 @@ const orderController = {
   async obtenerPedidosPorUsuario(req, res) {
     const { userId } = req.params;
     try {
+      // Pedido + sus items reales (detalle_pedidos) con datos del producto
       const { data, error } = await supabase
-        .from('pedidos').select('*')
+        .from('pedidos')
+        .select(`
+          *,
+          detalle_pedidos(
+            cantidad, precio_unitario_historico, subtotal_item,
+            productos(id, nombre_producto, imagenes)
+          ),
+          subpedidos(
+            codigo_subpedido, estado, tracking_number,
+            sharf_status, sharf_status_desc
+          )
+        `)
         .eq('usuario_id', userId)
         .order('fecha_pedido', { ascending: false });
       if (error) throw error;
-      return res.status(200).json(data);
+      return res.status(200).json(data ?? []);
     } catch (e) {
       return res.status(500).json({ error: e.message });
     }
