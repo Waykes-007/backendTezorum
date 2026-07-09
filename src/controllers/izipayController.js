@@ -216,6 +216,16 @@ const webhook = async (req, res) => {
       };
 
       await orderController.crearPedido(fakeReq, fakeRes);
+
+      // Vaciar el carrito del backend tras la compra exitosa
+      // (evita que filas viejas o duplicadas entren en el próximo pedido)
+      try {
+        await supabase.from('carrito').delete()
+          .eq('usuario_id', datosPedido.usuario_id);
+        console.log('🧹 Carrito del usuario vaciado tras la compra');
+      } catch (e) {
+        console.error('⚠️ No se pudo vaciar el carrito:', e.message);
+      }
     }
 
     res.json({ status: 'OK' });
