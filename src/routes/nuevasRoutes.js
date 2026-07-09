@@ -746,7 +746,12 @@ router.get('/favoritos/:userId', async (req, res) => {
   try {
     const { data, error } = await supabase
       .from('favoritos')
-      .select('producto_id, productos(id, nombre_producto, imagenes, precio_normal, precio_oferta)')
+      .select(`producto_id, productos(
+        id, nombre_producto, imagenes, precio_normal, precio_oferta, precio_flash,
+        calificacion_promedio, unidades_vendidas, stock_disponible, estado_aprobacion,
+        es_oferta_flash, tienda_id, tipo_limite, valor_limite, usos_actuales,
+        tiendas(id, nombre_tienda, tienda_verificada, es_vendedor_oro)
+      )`)
       .eq('usuario_id', req.params.userId)
       .order('created_at', { ascending: false })
     if (error) throw error
