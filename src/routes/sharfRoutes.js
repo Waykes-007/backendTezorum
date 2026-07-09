@@ -53,23 +53,29 @@ router.post(`/despacho/:salidaId`, async (req, res) => {
       almacen: req.body.almacen ?? {},
     })
 
-    // Guardar tracking en salidas_paquetes
-    await supabase.from('salidas_paquetes').update({
+    // Guardar tracking en salidas_paquetes (con captura de error)
+    const { error: errSalida } = await supabase.from('salidas_paquetes').update({
       tracking_number:    trackingNumber,
       tracking_url:       trackingURL,
       sharf_order_number: orderNumber,
       sharf_status:       '5423',
       sharf_status_desc:  'EMITIDO',
     }).eq('id', salidaId)
+    if (errSalida) {
+      console.error('❌ Error guardando salida_paquetes:', errSalida.message)
+    } else {
+      console.log('✅ salida_paquetes actualizada:', salidaId)
+    }
 
     // Guardar tracking en cada subpedido y cambiar estado a en_ruta
     for (const sub of subpedidos) {
-      await supabase.from('subpedidos').update({
+      const { error: errSub } = await supabase.from('subpedidos').update({
         estado:          'en_ruta',
         tracking_number: trackingNumber,
         sharf_status:    '5423',
         sharf_status_desc: 'EMITIDO',
       }).eq('id', sub.id)
+      if (errSub) console.error('❌ Error subpedido', sub.id, ':', errSub.message)
     }
 
     return res.json({
@@ -109,6 +115,14 @@ router.get('/tracking/pedido/:orderNumber', async (req, res) => {
 // Sharf llama a este endpoint cuando cambia el estado de un envío
 router.post('/webhook', async (req, res) => {
   try {
+    // Verificar que la notificación viene realmente de Sharf
+    const secretRecibido = req.headers['x-client-secret']
+    if (!process.env.SHARF_WEBHOOK_SECRET ||
+        secretRecibido !== process.env.SHARF_WEBHOOK_SECRET) {
+      console.warn('⚠️ Webhook Sharf con secret inválido — rechazado')
+      return res.status(401).json({ error: 'No autorizado' })
+    }
+
     console.log('📦 Webhook Sharf recibido:', JSON.stringify(req.body))
     await procesarWebhookSharf(req.body)
     return res.status(200).json({ ok: true })
