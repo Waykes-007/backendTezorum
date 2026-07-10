@@ -608,7 +608,9 @@ router.get('/promociones', async (req, res) => {
       .select(`
         id, producto_id, tipo_limite, valor_limite, usos_actuales,
         precio_oferta, activa,
-        productos(id, nombre_producto, imagenes, precio_normal, estado_aprobacion)
+        productos(id, nombre_producto, imagenes, precio_normal, precio_oferta,
+          estado_aprobacion, unidades_vendidas, calificacion_promedio,
+          tiendas(id, nombre_tienda, es_vendedor_oro, tienda_verificada))
       `)
       .eq('activa', true)
       .limit(20)
@@ -633,19 +635,26 @@ router.get('/promociones', async (req, res) => {
                           ? o.productos.imagenes[0] : null,
       precio_normal:    parseFloat(o.productos.precio_normal) || 0,
       precio_promocion: parseFloat(o.precio_oferta) || 0,
+      precio_oferta:    parseFloat(o.productos.precio_oferta) || null,
       tipo_limite:      o.tipo_limite,
       valor_limite:     o.valor_limite,
       usos_actuales:    o.usos_actuales,
       oferta_flash_id:  o.id,
+      unidades_vendidas:    o.productos.unidades_vendidas ?? 0,
+      calificacion_promedio: o.productos.calificacion_promedio ?? 0,
+      es_vendedor_oro:      o.productos.tiendas?.es_vendedor_oro === true,
+      tienda_verificada:    o.productos.tiendas?.tienda_verificada === true,
     }))
 
     // ── Con oferta: productos con precio_oferta < precio_normal ─
     const { data: ofertasData } = await supabase
       .from('productos')
-      .select('id, nombre_producto, imagenes, precio_normal, precio_oferta')
+      .select(`id, nombre_producto, imagenes, precio_normal, precio_oferta,
+        unidades_vendidas, calificacion_promedio,
+        tiendas(id, nombre_tienda, es_vendedor_oro, tienda_verificada)`)
       .eq('estado_aprobacion', 'publicado')
       .not('precio_oferta', 'is', null)
-      .limit(20)
+      .limit(40)
 
     const con_oferta = (ofertasData ?? [])
       .filter(p => parseFloat(p.precio_oferta) < parseFloat(p.precio_normal))
@@ -655,6 +664,11 @@ router.get('/promociones', async (req, res) => {
         imagen:           Array.isArray(p.imagenes) && p.imagenes.length > 0 ? p.imagenes[0] : null,
         precio_normal:    parseFloat(p.precio_normal) || 0,
         precio_promocion: parseFloat(p.precio_oferta) || 0,
+        precio_oferta:    parseFloat(p.precio_oferta) || null,
+        unidades_vendidas:    p.unidades_vendidas ?? 0,
+        calificacion_promedio: p.calificacion_promedio ?? 0,
+        es_vendedor_oro:      p.tiendas?.es_vendedor_oro === true,
+        tienda_verificada:    p.tiendas?.tienda_verificada === true,
       }))
 
     // ── Más vendidos ─────────────────────────────────────────
