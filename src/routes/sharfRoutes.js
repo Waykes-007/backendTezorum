@@ -78,6 +78,14 @@ router.post(`/despacho/:salidaId`, async (req, res) => {
       if (errSub) console.error('❌ Error subpedido', sub.id, ':', errSub.message)
     }
 
+    // Marcar el pedido principal como enviado (para que la app del
+    // cliente muestre "En camino" en vez de "Procesando")
+    const { error: errPedido } = await supabase.from('pedidos')
+      .update({ estado_pedido: 'enviado', numero_rastreo: trackingNumber })
+      .eq('id', pedido.id)
+    if (errPedido) console.error('❌ Error actualizando pedido:', errPedido.message)
+    else console.log('✅ Pedido marcado como enviado:', pedido.id)
+
     return res.json({
       message:        '✅ Envío creado en Sharf',
       trackingNumber,

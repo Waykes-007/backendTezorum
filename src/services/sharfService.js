@@ -12,15 +12,29 @@ const sharfHeaders = () => ({
   'Content-Type':     'application/json',
 })
 
+// Mapa de códigos de estado de Sharf a estados internos de Waykes.
+// Sharf usa DOS familias de códigos según el contexto:
+//  - Códigos cortos de la doc oficial: 12=PROGRAMANDO, 13=EN RUTA, 14=ENTREGADO, 15=OBSERVADO
+//  - Códigos largos que devuelve el tracking real: 5423=EMITIDO, 5678=ASIGNADO A RUTA, 5679=ENTREGADO...
+// Cubrimos ambos para que el webhook funcione sin importar cuál envíe.
 const SHARF_ESTADO_MAP = {
-  '5423': 'en_ruta',
-  '5678': 'en_ruta',
-  '5679': 'entregado',
+  // Códigos cortos (doc oficial del Set order status)
+  '12': 'en_ruta',        // PROGRAMANDO
+  '13': 'en_ruta',        // EN RUTA
+  '14': 'entregado',      // ENTREGADO
+  '15': 'no_entregado',   // OBSERVADO
+  // Códigos largos (tracking real)
+  '5423': 'en_ruta',      // EMITIDO
+  '5678': 'en_ruta',      // ASIGNADO A RUTA
+  '5679': 'entregado',    // ENTREGADO
   '5680': 'no_entregado',
   '5681': 'en_ruta',
   '5682': 'no_recogido',
   '6000': 'devolucion',
 }
+
+// Códigos que representan "entregado" (para marcar el pedido completo)
+const CODIGOS_ENTREGADO = ['14', '5679']
 
 async function crearEnvioSharf({ pedido, subpedidos, datosEntrega, almacen }) {
   try {
@@ -103,9 +117,20 @@ async function crearEnvioSharf({ pedido, subpedidos, datosEntrega, almacen }) {
       { headers: sharfHeaders() }
     )
 
-    const { trackingNumber, trackingURL } = res.data?.data ?? {}
-    console.log(`✅ Sharf envío creado: ${trackingNumber}`)
-    return { trackingNumber, trackingURL, orderNumber }
+    // Sharf genera su PROPIO orderNumber interno y lo devuelve.
+    // Hay que usar ESE (no el nuestro) para el tracking y el Set order status.
+    const {
+      trackingNumber,
+      trackingURL,
+      orderNumber: sharfOrderNumber,
+    } = res.data?.data ?? {}
+    console.log(`✅ Sharf envío creado: tracking=${trackingNumber} orderNumber=${sharfOrderNumber}`)
+    // Devolvemos el orderNumber de Sharf; si no viniera, caemos al nuestro
+    return {
+      trackingNumber,
+      trackingURL,
+      orderNumber: sharfOrderNumber ?? orderNumber,
+    }
   } catch (err) {
     console.error('❌ Sharf crearEnvio:', JSON.stringify(err.response?.data ?? err.message))
     throw new Error(err.response?.data?.message ?? err.message)
@@ -167,7 +192,7 @@ async function procesarWebhookSharf(payload) {
     sharf_status_desc: `${orderStatusDescription}${orderSubStatusDescription ? ' - ' + orderSubStatusDescription : ''}`,
   }).eq('tracking_number', trackingNumber)
 
-  if (orderStatusCode === '5679') {
+  if (CODIGOS_ENTREGADO.includes(String(orderStatusCode))) {
     const { data: salida } = await supabase
       .from('salidas_paquetes').select('pedido_id')
       .eq('tracking_number', trackingNumber).single()
@@ -186,4 +211,5 @@ module.exports = {
   consultarTrackingPorPedido,
   procesarWebhookSharf,
   SHARF_ESTADO_MAP,
+  CODIGOS_ENTREGADO,
 }
