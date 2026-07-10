@@ -6,6 +6,8 @@ const {
   crearEnvioSharf,
   consultarTracking,
   consultarTrackingPorPedido,
+  SHARF_ESTADO_MAP,
+  CODIGOS_ENTREGADO,
   procesarWebhookSharf,
 } = require('../services/sharfService')
 const { soloAdmin } = require('../middlewares/authMiddleware')
@@ -136,6 +138,65 @@ router.post('/webhook', async (req, res) => {
     return res.status(200).json({ ok: true })
   } catch (err) {
     console.error('❌ Webhook Sharf error:', err.message)
+    return res.status(500).json({ error: err.message })
+  }
+})
+
+// ── GET /api/sharf/sincronizar/:pedidoId ──────────────────────────────────────
+// Plan B del webhook: consulta el estado REAL a Sharf y actualiza la BD.
+// Útil para el botón "Actualizar" del panel y como respaldo si el webhook falla.
+router.get('/sincronizar/:pedidoId', async (req, res) => {
+  try {
+    // Buscar el tracking del pedido (vive en subpedidos)
+    const { data: subs, error: errSub } = await supabase
+      .from('subpedidos')
+      .select('id, tracking_number, pedido_id')
+      .eq('pedido_id', req.params.pedidoId)
+      .not('tracking_number', 'is', null)
+
+    if (errSub) throw errSub
+    if (!subs || subs.length === 0)
+      return res.status(404).json({ error: 'Este pedido no tiene envío en Sharf' })
+
+    const trackingNumber = subs[0].tracking_number
+
+    // Consultar el estado real a Sharf
+    const tracking = await consultarTracking(trackingNumber)
+    if (!tracking)
+      return res.status(502).json({ error: 'Sharf no devolvió información del tracking' })
+
+    const codigo = String(tracking.statusCode ?? tracking.orderStatusCode ?? '')
+    const desc   = tracking.statusDescription ?? tracking.orderStatusDescription ?? ''
+    const estadoWaykes = SHARF_ESTADO_MAP[codigo] ?? 'en_ruta'
+
+    // Actualizar salida y subpedidos
+    await supabase.from('salidas_paquetes')
+      .update({ sharf_status: codigo, sharf_status_desc: desc })
+      .eq('tracking_number', trackingNumber)
+
+    await supabase.from('subpedidos')
+      .update({ estado: estadoWaykes, sharf_status: codigo, sharf_status_desc: desc })
+      .eq('tracking_number', trackingNumber)
+
+    // Sincronizar el estado del pedido principal
+    let estadoPedido = 'enviado'
+    if (CODIGOS_ENTREGADO.includes(codigo)) estadoPedido = 'entregado'
+    else if (['5680', '6000'].includes(codigo)) estadoPedido = 'enviado' // problema, sigue en curso
+
+    await supabase.from('pedidos')
+      .update({ estado_pedido: estadoPedido, numero_rastreo: trackingNumber })
+      .eq('id', req.params.pedidoId)
+
+    return res.json({
+      ok: true,
+      trackingNumber,
+      estado: estadoWaykes,
+      codigo,
+      descripcion: desc,
+      eventos: tracking.events ?? [],
+    })
+  } catch (err) {
+    console.error('❌ Sharf sincronizar:', err.message)
     return res.status(500).json({ error: err.message })
   }
 })
