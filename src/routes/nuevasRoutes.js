@@ -654,7 +654,7 @@ router.get('/promociones', async (req, res) => {
         tiendas(id, nombre_tienda, es_vendedor_oro, tienda_verificada)`)
       .eq('estado_aprobacion', 'publicado')
       .not('precio_oferta', 'is', null)
-      .limit(40)
+      .limit(100)
 
     const con_oferta = (ofertasData ?? [])
       .filter(p => parseFloat(p.precio_oferta) < parseFloat(p.precio_normal))
