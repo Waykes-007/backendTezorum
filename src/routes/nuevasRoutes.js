@@ -1078,6 +1078,21 @@ router.get('/productos', async (req, res) => {
 })
 
 // ══════════════════════════════════════════════════════════════
+// GET /api/banners — banners activos para el home de la app (ordenados)
+router.get('/banners', async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from('banners')
+      .select('*')
+      .eq('activo', true)
+      .order('orden', { ascending: true })
+    if (error) throw error
+    res.json(data ?? [])
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
 // GET /api/ofertas-flash/count — conteo ligero para el banner "ofertas nuevas"
 // Devuelve solo el número de ofertas flash vigentes (sin traer productos)
 router.get('/ofertas-flash/count', async (req, res) => {
