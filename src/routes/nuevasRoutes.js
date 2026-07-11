@@ -609,7 +609,7 @@ router.get('/promociones', async (req, res) => {
         id, producto_id, tipo_limite, valor_limite, usos_actuales,
         precio_oferta, activa,
         productos(id, nombre_producto, imagenes, precio_normal, precio_oferta,
-          estado_aprobacion, unidades_vendidas, calificacion_promedio,
+          estado_aprobacion, calificacion_promedio,
           tiendas(id, nombre_tienda, es_vendedor_oro, tienda_verificada))
       `)
       .eq('activa', true)
@@ -640,7 +640,7 @@ router.get('/promociones', async (req, res) => {
       valor_limite:     o.valor_limite,
       usos_actuales:    o.usos_actuales,
       oferta_flash_id:  o.id,
-      unidades_vendidas:    o.productos.unidades_vendidas ?? 0,
+      unidades_vendidas:    0,
       calificacion_promedio: o.productos.calificacion_promedio ?? 0,
       es_vendedor_oro:      o.productos.tiendas?.es_vendedor_oro === true,
       tienda_verificada:    o.productos.tiendas?.tienda_verificada === true,
@@ -653,7 +653,7 @@ router.get('/promociones', async (req, res) => {
       .from('productos')
       .select(`id, nombre_producto, imagenes, precio_normal, precio_oferta,
         es_oferta_flash, precio_flash, tienda_id,
-        unidades_vendidas, calificacion_promedio, estado_aprobacion`)
+        calificacion_promedio, estado_aprobacion`)
       .eq('estado_aprobacion', 'publicado')
       .limit(200)
     if (ofertasErr) console.error('❌ promociones con_oferta:', ofertasErr.message)
@@ -681,7 +681,7 @@ router.get('/promociones', async (req, res) => {
           precio_normal:    parseFloat(p.precio_normal) || 0,
           precio_promocion: parseFloat(p.precio_oferta) || 0,
           precio_oferta:    parseFloat(p.precio_oferta) || null,
-          unidades_vendidas:    p.unidades_vendidas ?? 0,
+          unidades_vendidas:    0,
           calificacion_promedio: p.calificacion_promedio ?? 0,
           es_vendedor_oro:      t.es_vendedor_oro === true,
           tienda_verificada:    t.tienda_verificada === true,
