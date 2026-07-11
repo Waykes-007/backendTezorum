@@ -647,29 +647,46 @@ router.get('/promociones', async (req, res) => {
     }))
 
     // ── Con oferta: productos con precio_oferta < precio_normal ─
-    const { data: ofertasData } = await supabase
+    // Traer TODOS los productos publicados con su tienda; filtramos oferta en JS.
+    // (join a tiendas por separado para que un tienda_id null no vacíe la query)
+    const { data: ofertasData, error: ofertasErr } = await supabase
       .from('productos')
       .select(`id, nombre_producto, imagenes, precio_normal, precio_oferta,
-        unidades_vendidas, calificacion_promedio,
-        tiendas(id, nombre_tienda, es_vendedor_oro, tienda_verificada)`)
+        es_oferta_flash, precio_flash, tienda_id,
+        unidades_vendidas, calificacion_promedio, estado_aprobacion`)
       .eq('estado_aprobacion', 'publicado')
-      .not('precio_oferta', 'is', null)
-      .limit(100)
+      .limit(200)
+    if (ofertasErr) console.error('❌ promociones con_oferta:', ofertasErr.message)
 
+    // Mapa de tiendas para saber Oro/verificada sin join frágil
+    const { data: tiendasData } = await supabase
+      .from('tiendas')
+      .select('id, es_vendedor_oro, tienda_verificada')
+    const tiendaMap = {}
+    for (const t of (tiendasData ?? [])) tiendaMap[t.id] = t
+
+    // Un producto va a "con oferta" si su precio_oferta es menor al normal
     const con_oferta = (ofertasData ?? [])
-      .filter(p => parseFloat(p.precio_oferta) < parseFloat(p.precio_normal))
-      .map(p => ({
-        producto_id:      p.id,
-        nombre:           p.nombre_producto,
-        imagen:           Array.isArray(p.imagenes) && p.imagenes.length > 0 ? p.imagenes[0] : null,
-        precio_normal:    parseFloat(p.precio_normal) || 0,
-        precio_promocion: parseFloat(p.precio_oferta) || 0,
-        precio_oferta:    parseFloat(p.precio_oferta) || null,
-        unidades_vendidas:    p.unidades_vendidas ?? 0,
-        calificacion_promedio: p.calificacion_promedio ?? 0,
-        es_vendedor_oro:      p.tiendas?.es_vendedor_oro === true,
-        tienda_verificada:    p.tiendas?.tienda_verificada === true,
-      }))
+      .filter(p => {
+        const normal = parseFloat(p.precio_normal) || 0
+        const oferta = parseFloat(p.precio_oferta) || 0
+        return oferta > 0 && oferta < normal
+      })
+      .map(p => {
+        const t = tiendaMap[p.tienda_id] || {}
+        return {
+          producto_id:      p.id,
+          nombre:           p.nombre_producto,
+          imagen:           Array.isArray(p.imagenes) && p.imagenes.length > 0 ? p.imagenes[0] : null,
+          precio_normal:    parseFloat(p.precio_normal) || 0,
+          precio_promocion: parseFloat(p.precio_oferta) || 0,
+          precio_oferta:    parseFloat(p.precio_oferta) || null,
+          unidades_vendidas:    p.unidades_vendidas ?? 0,
+          calificacion_promedio: p.calificacion_promedio ?? 0,
+          es_vendedor_oro:      t.es_vendedor_oro === true,
+          tienda_verificada:    t.tienda_verificada === true,
+        }
+      })
 
     // ── Más vendidos ─────────────────────────────────────────
     const { data: topData } = await supabase
