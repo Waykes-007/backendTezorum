@@ -1078,6 +1078,30 @@ router.get('/productos', async (req, res) => {
 })
 
 // ══════════════════════════════════════════════════════════════
+// GET /api/ofertas-flash/count — conteo ligero para el banner "ofertas nuevas"
+// Devuelve solo el número de ofertas flash vigentes (sin traer productos)
+router.get('/ofertas-flash/count', async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from('ofertas_flash')
+      .select('id, tipo_limite, valor_limite, usos_actuales')
+      .eq('activa', true)
+    if (error) throw error
+
+    const ahora = new Date()
+    const vigentes = (data ?? []).filter(o => {
+      if (o.tipo_limite === 'tiempo') return new Date(o.valor_limite) > ahora
+      if (o.tipo_limite === 'cantidad') {
+        return (o.usos_actuales ?? 0) < (parseInt(o.valor_limite) || 0)
+      }
+      return true
+    })
+    res.json({ count: vigentes.length })
+  } catch (err) {
+    res.status(500).json({ error: err.message, count: 0 })
+  }
+})
+
 // GET /api/ofertas-flash/activas — con join de tiendas
 // ══════════════════════════════════════════════════════════════
 router.get('/ofertas-flash/activas', async (req, res) => {
