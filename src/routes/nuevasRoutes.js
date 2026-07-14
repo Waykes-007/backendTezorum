@@ -603,18 +603,19 @@ router.get('/promociones', async (req, res) => {
     const ahora = new Date().toISOString()
 
     // ── Flash: SOLO ofertas con registro activo en ofertas_flash ──
-    const { data: flashData } = await supabase
+        const { data: flashData } = await supabase
       .from('ofertas_flash')
       .select(`
         id, producto_id, tipo_limite, valor_limite, usos_actuales,
         precio_oferta, activa,
+        banner_personalizado, banner_titulo, banner_imagen_url,
         productos(id, nombre_producto, imagenes, precio_normal, precio_oferta,
           estado_aprobacion, calificacion_promedio,
           tiendas(id, nombre_tienda, es_vendedor_oro, tienda_verificada))
       `)
       .eq('activa', true)
       .limit(20)
-
+ 
     // Filtrar: producto debe estar publicado, y si es por tiempo no debe haber expirado
     const flashVigentes = (flashData ?? []).filter(o => {
       if (!o.productos || o.productos.estado_aprobacion !== 'publicado') return false
@@ -627,7 +628,7 @@ router.get('/promociones', async (req, res) => {
       }
       return true
     })
-
+ 
     const flash = flashVigentes.map(o => ({
       producto_id:      o.productos.id,
       nombre:           o.productos.nombre_producto,
@@ -644,6 +645,11 @@ router.get('/promociones', async (req, res) => {
       calificacion_promedio: o.productos.calificacion_promedio ?? 0,
       es_vendedor_oro:      o.productos.tiendas?.es_vendedor_oro === true,
       tienda_verificada:    o.productos.tiendas?.tienda_verificada === true,
+      // ⭐ NUEVO — para el spotlight de la pantalla de ofertas
+      nombre_tienda:        o.productos.tiendas?.nombre_tienda ?? null,
+      banner_personalizado: o.banner_personalizado === true,
+      banner_titulo:        o.banner_titulo ?? null,
+      banner_imagen_url:    o.banner_imagen_url ?? null,
     }))
 
     // ── Con oferta: productos con precio_oferta < precio_normal ─
@@ -1126,6 +1132,7 @@ router.get('/ofertas-flash/activas', async (req, res) => {
       .from('ofertas_flash')
       .select(`
         id, producto_id, tipo_limite, valor_limite, usos_actuales, precio_oferta, activa,
+        banner_personalizado, banner_titulo, banner_imagen_url,
         productos(
           id, nombre_producto, precio_normal, precio_oferta, imagenes,
           calificacion_promedio, stock_disponible, estado_aprobacion,
@@ -1134,9 +1141,9 @@ router.get('/ofertas-flash/activas', async (req, res) => {
       `)
       .eq('activa', true)
       .limit(20)
-
+ 
     if (error) throw error
-
+ 
     // Filtrar vigentes (no expiradas por tiempo, no agotadas por cantidad)
     const vigentes = (data ?? []).filter(o => {
       if (!o.productos || o.productos.estado_aprobacion !== 'publicado') return false
@@ -1147,7 +1154,7 @@ router.get('/ofertas-flash/activas', async (req, res) => {
       }
       return true
     })
-
+ 
     // Formato compatible con WaykesProduct.fromJson — inyectar precio_flash y datos de oferta
     const productos = vigentes.map(o => ({
       ...o.productos,
@@ -1157,8 +1164,12 @@ router.get('/ofertas-flash/activas', async (req, res) => {
       tipo_limite:      o.tipo_limite,
       valor_limite:     o.valor_limite,
       usos_actuales:    o.usos_actuales,
+      // ⭐ NUEVO — banner temporal personalizable
+      banner_personalizado: o.banner_personalizado === true,
+      banner_titulo:        o.banner_titulo ?? null,
+      banner_imagen_url:    o.banner_imagen_url ?? null,
     }))
-
+ 
     if (productos.length > 0) {
       const ids = productos.map(p => p.id)
       const { data: ventas } = await supabase
@@ -1166,7 +1177,7 @@ router.get('/ofertas-flash/activas', async (req, res) => {
         .select('producto_id, cantidad, pedidos!inner(estado_pedido)')
         .in('producto_id', ids)
         .eq('pedidos.estado_pedido', 'entregado')
-
+ 
       const ventasPorProducto = {}
       for (const v of (ventas ?? [])) {
         ventasPorProducto[v.producto_id] =
@@ -1176,7 +1187,7 @@ router.get('/ofertas-flash/activas', async (req, res) => {
         p.unidades_vendidas = ventasPorProducto[p.id] || 0
       })
     }
-
+ 
     res.json(productos)
   } catch (err) {
     res.status(500).json({ error: err.message })
