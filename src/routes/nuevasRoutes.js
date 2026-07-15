@@ -609,6 +609,7 @@ router.get('/promociones', async (req, res) => {
         id, producto_id, tipo_limite, valor_limite, usos_actuales,
         precio_oferta, activa,
         banner_personalizado, banner_titulo, banner_imagen_url, banner_estilo,
+        banner_color_1, banner_color_2,
         productos(id, nombre_producto, imagenes, precio_normal, precio_oferta,
           estado_aprobacion, calificacion_promedio,
           tiendas(id, nombre_tienda, es_vendedor_oro, tienda_verificada))
@@ -651,6 +652,8 @@ router.get('/promociones', async (req, res) => {
       banner_titulo:        o.banner_titulo ?? null,
       banner_imagen_url:    o.banner_imagen_url ?? null,
       banner_estilo:        o.banner_estilo ?? 'defecto',
+      banner_color_1:       o.banner_color_1 ?? null,
+      banner_color_2:       o.banner_color_2 ?? null,
     }))
 
     // ── Con oferta: productos con precio_oferta < precio_normal ─
@@ -1134,6 +1137,7 @@ router.get('/ofertas-flash/activas', async (req, res) => {
       .select(`
         id, producto_id, tipo_limite, valor_limite, usos_actuales, precio_oferta, activa,
         banner_personalizado, banner_titulo, banner_imagen_url, banner_estilo,
+        banner_color_1, banner_color_2,
         productos(
           id, nombre_producto, precio_normal, precio_oferta, imagenes,
           calificacion_promedio, stock_disponible, estado_aprobacion,
@@ -1170,6 +1174,8 @@ router.get('/ofertas-flash/activas', async (req, res) => {
       banner_titulo:        o.banner_titulo ?? null,
       banner_imagen_url:    o.banner_imagen_url ?? null,
       banner_estilo:        o.banner_estilo ?? 'defecto',
+      banner_color_1:       o.banner_color_1 ?? null,
+      banner_color_2:       o.banner_color_2 ?? null,
     }))
  
     if (productos.length > 0) {
