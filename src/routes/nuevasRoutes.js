@@ -609,6 +609,7 @@ router.get('/promociones', async (req, res) => {
         id, producto_id, tipo_limite, valor_limite, usos_actuales,
         precio_oferta, activa,
         banner_personalizado, banner_titulo, banner_imagen_url, banner_estilo,
+        banner_img_pos_x, banner_img_pos_y, banner_img_zoom,
         banner_color_1, banner_color_2,
         productos(id, nombre_producto, imagenes, precio_normal, precio_oferta,
           estado_aprobacion, calificacion_promedio,
@@ -652,6 +653,9 @@ router.get('/promociones', async (req, res) => {
       banner_titulo:        o.banner_titulo ?? null,
       banner_imagen_url:    o.banner_imagen_url ?? null,
       banner_estilo:        o.banner_estilo ?? 'defecto',
+      banner_img_pos_x:     o.banner_img_pos_x ?? 50,
+      banner_img_pos_y:     o.banner_img_pos_y ?? 50,
+      banner_img_zoom:      o.banner_img_zoom ?? 1,
       banner_color_1:       o.banner_color_1 ?? null,
       banner_color_2:       o.banner_color_2 ?? null,
     }))
@@ -1137,6 +1141,7 @@ router.get('/ofertas-flash/activas', async (req, res) => {
       .select(`
         id, producto_id, tipo_limite, valor_limite, usos_actuales, precio_oferta, activa,
         banner_personalizado, banner_titulo, banner_imagen_url, banner_estilo,
+        banner_img_pos_x, banner_img_pos_y, banner_img_zoom,
         banner_color_1, banner_color_2,
         productos(
           id, nombre_producto, precio_normal, precio_oferta, imagenes,
@@ -1174,6 +1179,9 @@ router.get('/ofertas-flash/activas', async (req, res) => {
       banner_titulo:        o.banner_titulo ?? null,
       banner_imagen_url:    o.banner_imagen_url ?? null,
       banner_estilo:        o.banner_estilo ?? 'defecto',
+      banner_img_pos_x:     o.banner_img_pos_x ?? 50,
+      banner_img_pos_y:     o.banner_img_pos_y ?? 50,
+      banner_img_zoom:      o.banner_img_zoom ?? 1,
       banner_color_1:       o.banner_color_1 ?? null,
       banner_color_2:       o.banner_color_2 ?? null,
     }))
