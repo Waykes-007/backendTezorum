@@ -666,10 +666,10 @@ router.get('/promociones', async (req, res) => {
     const { data: ofertasData, error: ofertasErr } = await supabase
       .from('productos')
       .select(`id, nombre_producto, imagenes, precio_normal, precio_oferta,
-        es_oferta_flash, precio_flash, tienda_id,
+        es_oferta_flash, precio_flash, tienda_id, es_liquidacion,
         calificacion_promedio, estado_aprobacion`)
       .eq('estado_aprobacion', 'publicado')
-      .limit(200)
+      .limit(500)
     if (ofertasErr) console.error('❌ promociones con_oferta:', ofertasErr.message)
 
     // Mapa de tiendas para saber Oro/verificada sin join frágil
@@ -734,21 +734,88 @@ router.get('/promociones', async (req, res) => {
       }))
     }
 
-    // ── Liquidación ──────────────────────────────────────────
-    const { data: liquidData } = await supabase
-      .from('productos')
-      .select('id, nombre_producto, imagenes, precio_normal, precio_oferta')
-      .eq('es_liquidacion', true)
-      .eq('estado_aprobacion', 'publicado')
-      .limit(12)
+    // ── Liquidación con SUB-OFERTAS ──────────────────────────
+    // Los tramos y nombres salen de categorias_oferta (BD), no de
+    // codigo: se pueden renombrar o mover sin tocar la app.
+    const { data: catsLiq } = await supabase
+      .from('categorias_oferta')
+      .select('slug, nombre, emoji, descripcion, regla, precio_min, precio_max, requiere_oferta, orden')
+      .eq('grupo', 'liquidacion')
+      .eq('activa', true)
+      .order('orden', { ascending: true })
 
-    const liquidacion = (liquidData ?? []).map(p => ({
-      producto_id:      p.id,
-      nombre:           p.nombre_producto,
-      imagen:           Array.isArray(p.imagenes) && p.imagenes.length > 0 ? p.imagenes[0] : null,
-      precio_normal:    parseFloat(p.precio_normal) || 0,
-      precio_promocion: parseFloat(p.precio_oferta ?? p.precio_normal) || 0,
-    }))
+    // Precio que realmente paga el cliente hoy (oferta si la hay)
+    const precioEfectivo = (p) => {
+      const normal = parseFloat(p.precio_normal) || 0
+      const oferta = parseFloat(p.precio_oferta) || 0
+      return (oferta > 0 && oferta < normal) ? oferta : normal
+    }
+
+    const aTarjeta = (p) => {
+      const t = tiendaMap[p.tienda_id] || {}
+      return {
+        producto_id:      p.id,
+        nombre:           p.nombre_producto,
+        imagen:           Array.isArray(p.imagenes) && p.imagenes.length > 0 ? p.imagenes[0] : null,
+        precio_normal:    parseFloat(p.precio_normal) || 0,
+        precio_promocion: precioEfectivo(p),
+        precio_oferta:    parseFloat(p.precio_oferta) || null,
+        unidades_vendidas:     0,
+        calificacion_promedio: p.calificacion_promedio ?? 0,
+        es_vendedor_oro:       t.es_vendedor_oro === true,
+        tienda_verificada:     t.tienda_verificada === true,
+      }
+    }
+
+    // Oro arriba, Clasico abajo, mezclados dentro de cada grupo
+    const mezclar = (arr) => {
+      const a = [...arr]
+      for (let i = a.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1))
+        ;[a[i], a[j]] = [a[j], a[i]]
+      }
+      return a
+    }
+    const oroPrimero = (items) => [
+      ...mezclar(items.filter(p => (tiendaMap[p.tienda_id] || {}).es_vendedor_oro === true)),
+      ...mezclar(items.filter(p => (tiendaMap[p.tienda_id] || {}).es_vendedor_oro !== true)),
+    ]
+
+    const liquidacion_subofertas = (catsLiq ?? []).map(c => {
+      const items = (ofertasData ?? []).filter(p => {
+        if (c.requiere_oferta) {
+          const n = parseFloat(p.precio_normal) || 0
+          const o = parseFloat(p.precio_oferta) || 0
+          if (!(o > 0 && o < n)) return false
+        }
+        if (c.regla === 'flag_liquidacion') return p.es_liquidacion === true
+        // regla 'precio'
+        const pe = precioEfectivo(p)
+        if (pe <= 0) return false
+        if (c.precio_min !== null && pe < parseFloat(c.precio_min)) return false
+        if (c.precio_max !== null && pe > parseFloat(c.precio_max)) return false
+        return true
+      })
+      return {
+        slug:        c.slug,
+        nombre:      c.nombre,
+        emoji:       c.emoji ?? '',
+        descripcion: c.descripcion ?? '',
+        total:       items.length,
+        productos:   oroPrimero(items).slice(0, 60).map(aTarjeta),
+      }
+    }).filter(sub => sub.total > 0)   // sub-oferta vacia no se muestra
+
+    // El chip padre "Liquidación" = union de todos los tramos, sin repetir
+    const vistosLiq = new Set()
+    const liquidacion = []
+    for (const sub of liquidacion_subofertas) {
+      for (const prod of sub.productos) {
+        if (vistosLiq.has(prod.producto_id)) continue
+        vistosLiq.add(prod.producto_id)
+        liquidacion.push(prod)
+      }
+    }
 
     // ── Gancho < S/9.90 ──────────────────────────────────────
     const { data: ganchoData } = await supabase
@@ -771,6 +838,7 @@ router.get('/promociones', async (req, res) => {
       con_oferta,
       mas_vendidos,
       liquidacion,
+      liquidacion_subofertas,
       gancho,
       total: flash.length + con_oferta.length + mas_vendidos.length + liquidacion.length + gancho.length,
     })
