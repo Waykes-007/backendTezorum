@@ -817,6 +817,60 @@ router.get('/promociones', async (req, res) => {
       }
     }
 
+    // ── COMBOS con SUB-OFERTAS ───────────────────────────────
+    // Un combo es un producto con es_combo = true. Por eso hereda
+    // todo: si ademas tiene oferta flash activa, ya aparece en la
+    // seccion "flash" sin logica extra.
+    const { data: catsCombo } = await supabase
+      .from('categorias_oferta')
+      .select('id, slug, nombre, emoji, descripcion, orden')
+      .eq('grupo', 'combo')
+      .eq('activa', true)
+      .order('orden', { ascending: true })
+
+    const { data: combosData } = await supabase
+      .from('productos')
+      .select(`id, nombre_producto, imagenes, precio_normal, precio_oferta,
+        tienda_id, calificacion_promedio, categoria_oferta_id`)
+      .eq('es_combo', true)
+      .eq('estado_aprobacion', 'publicado')
+      .limit(200)
+
+    // Cuantos productos trae cada combo — se muestra en la tarjeta
+    let itemsPorCombo = {}
+    if ((combosData ?? []).length > 0) {
+      const { data: items } = await supabase
+        .from('combo_items')
+        .select('combo_id, cantidad')
+        .in('combo_id', combosData.map(c => c.id))
+      for (const it of (items ?? [])) {
+        itemsPorCombo[it.combo_id] =
+          (itemsPorCombo[it.combo_id] || 0) + (parseInt(it.cantidad) || 0)
+      }
+    }
+
+    const aTarjetaCombo = (p) => ({
+      ...aTarjeta(p),
+      es_combo:    true,
+      combo_items: itemsPorCombo[p.id] || 0,
+    })
+
+    const combos_subofertas = (catsCombo ?? []).map(c => {
+      const items = (combosData ?? []).filter(p => p.categoria_oferta_id === c.id)
+      return {
+        slug:        c.slug,
+        nombre:      c.nombre,
+        emoji:       c.emoji ?? '',
+        descripcion: c.descripcion ?? '',
+        total:       items.length,
+        productos:   oroPrimero(items).map(aTarjetaCombo),
+      }
+    }).filter(sub => sub.total > 0)
+
+    // Chip padre "Combos" = todos, incluidos los que no tienen
+    // plantilla asignada (categoria_oferta_id null)
+    const combos = oroPrimero(combosData ?? []).map(aTarjetaCombo)
+
     // ── Gancho < S/9.90 ──────────────────────────────────────
     const { data: ganchoData } = await supabase
       .from('productos')
@@ -839,8 +893,11 @@ router.get('/promociones', async (req, res) => {
       mas_vendidos,
       liquidacion,
       liquidacion_subofertas,
+      combos,
+      combos_subofertas,
       gancho,
-      total: flash.length + con_oferta.length + mas_vendidos.length + liquidacion.length + gancho.length,
+      total: flash.length + con_oferta.length + mas_vendidos.length +
+             liquidacion.length + combos.length + gancho.length,
     })
   } catch (err) {
     res.status(500).json({ error: err.message })
