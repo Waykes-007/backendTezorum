@@ -1346,7 +1346,7 @@ router.get('/productos/:id', async (req, res) => {
         id, nombre_producto, descripcion, precio_normal, precio_oferta,
         precio_flash, imagenes, calificacion_promedio, stock_disponible,
         estado_aprobacion, tienda_id, categoria_id, subcategoria_id,
-        es_oferta_flash, es_mas_vendido,
+        es_oferta_flash, es_mas_vendido, es_combo,
         subcategorias(id, nombre),
         tiendas(id, nombre_tienda, tienda_verificada, es_vendedor_oro)
       `)
@@ -1355,6 +1355,43 @@ router.get('/productos/:id', async (req, res) => {
 
     if (error) throw error
     if (!data) return res.status(404).json({ error: 'Producto no encontrado' })
+
+    // ── Si es combo: que trae adentro y cuanto se ahorra ──
+    // Sin esto el cliente ve "Combo La pituca x 3" y no tiene idea
+    // de que esta comprando.
+    let combo_items = []
+    let combo_precio_separado = 0
+    if (data.es_combo === true) {
+      const { data: items } = await supabase
+        .from('combo_items')
+        .select(`cantidad,
+          productos:producto_id(
+            id, nombre_producto, imagenes, precio_normal, precio_oferta
+          )`)
+        .eq('combo_id', req.params.id)
+
+      combo_items = (items ?? [])
+        .filter(it => it.productos)
+        .map(it => {
+          const p      = it.productos
+          const normal = parseFloat(p.precio_normal) || 0
+          const oferta = parseFloat(p.precio_oferta) || 0
+          // Lo que costaria HOY comprarlo suelto (respeta su oferta)
+          const efectivo = (oferta > 0 && oferta < normal) ? oferta : normal
+          const cant     = parseInt(it.cantidad) || 1
+          combo_precio_separado += efectivo * cant
+          return {
+            producto_id:   p.id,
+            nombre:        p.nombre_producto,
+            imagen:        Array.isArray(p.imagenes) && p.imagenes.length > 0
+                             ? p.imagenes[0] : null,
+            cantidad:      cant,
+            precio_normal: normal,
+            precio_unitario: efectivo,
+          }
+        })
+      combo_precio_separado = parseFloat(combo_precio_separado.toFixed(2))
+    }
 
     // Inyectar estado real de oferta flash vigente
     const { data: oferta } = await supabase
@@ -1385,6 +1422,8 @@ router.get('/productos/:id', async (req, res) => {
 
     res.json({
       ...data,
+      combo_items,
+      combo_precio_separado,
       es_oferta_flash: vigente,
       precio_flash:    vigente ? parseFloat(oferta.precio_oferta) : null,
       tipo_limite:     vigente ? oferta.tipo_limite : null,
