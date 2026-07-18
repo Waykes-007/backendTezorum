@@ -669,6 +669,7 @@ router.get('/promociones', async (req, res) => {
         es_oferta_flash, precio_flash, tienda_id, es_liquidacion,
         calificacion_promedio, estado_aprobacion`)
       .eq('estado_aprobacion', 'publicado')
+      .eq('es_combo', false)
       .limit(500)
     if (ofertasErr) console.error('❌ promociones con_oferta:', ofertasErr.message)
 
@@ -708,6 +709,7 @@ router.get('/promociones', async (req, res) => {
       .select('id, nombre_producto, imagenes, precio_normal, precio_oferta')
       .eq('es_mas_vendido', true)
       .eq('estado_aprobacion', 'publicado')
+      .eq('es_combo', false)
       .limit(12)
 
     let mas_vendidos = (topData ?? []).map(p => ({
@@ -723,6 +725,7 @@ router.get('/promociones', async (req, res) => {
         .from('productos')
         .select('id, nombre_producto, imagenes, precio_normal, precio_oferta, calificacion_promedio')
         .eq('estado_aprobacion', 'publicado')
+        .eq('es_combo', false)
         .order('calificacion_promedio', { ascending: false })
         .limit(8)
       mas_vendidos = (topRating ?? []).map(p => ({
@@ -877,6 +880,7 @@ router.get('/promociones', async (req, res) => {
       .select('id, nombre_producto, imagenes, precio_normal, precio_oferta')
       .eq('es_gancho_menor_9_90', true)
       .eq('estado_aprobacion', 'publicado')
+      .eq('es_combo', false)
       .limit(12)
 
     const gancho = (ganchoData ?? []).map(p => ({
@@ -965,6 +969,7 @@ router.get('/productos/buscar', async (req, res) => {
       .select('id, nombre_producto, imagenes, precio_normal, precio_oferta')
       .ilike('nombre_producto', `%${nombre}%`)
       .eq('estado_aprobacion', 'publicado')
+      .eq('es_combo', false)
       .limit(5)
     if (error) throw error
     res.json(data)
@@ -1143,6 +1148,7 @@ router.get('/productos', async (req, res) => {
         tiendas(id, nombre_tienda, tienda_verificada, es_vendedor_oro)
       `)
       .eq('estado_aprobacion', estado)
+      .eq('es_combo', false)
       .range(parseInt(offset), parseInt(offset) + parseInt(limit) - 1)
       // ⭐ Prioridad Plan Oro: los productos de tiendas Oro aparecen
       // primero en el feed (beneficio "Primeras posiciones").
