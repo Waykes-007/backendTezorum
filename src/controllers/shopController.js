@@ -13,7 +13,8 @@ const shopController = {
           tiendas(id, nombre_tienda, tienda_verificada, es_vendedor_oro),
           resenas(count)
         `)
-        .eq('estado_aprobacion', 'publicado');
+        .eq('estado_aprobacion', 'publicado')
+        .eq('es_combo', false);
 
       if (error) throw error;
 
@@ -104,6 +105,7 @@ const shopController = {
         .select('id, nombre_producto, precio_normal, precio_oferta, imagenes')
         .eq('es_liquidacion', true)
         .eq('estado_aprobacion', 'publicado')
+        .eq('es_combo', false)
         .gt('stock_disponible', 0);
 
       const liquidacionMapped = (liquidacion ?? []).map(p => ({
@@ -122,6 +124,7 @@ const shopController = {
         .select('id, nombre_producto, precio_normal, precio_oferta, imagenes')
         .eq('es_gancho_menor_9_90', true)
         .eq('estado_aprobacion', 'publicado')
+        .eq('es_combo', false)
         .gt('stock_disponible', 0);
 
       const ganchoMapped = (gancho ?? []).map(p => ({
@@ -140,6 +143,7 @@ const shopController = {
         .select('id, nombre_producto, precio_normal, precio_oferta, imagenes')
         .eq('es_mas_vendido', true)
         .eq('estado_aprobacion', 'publicado')
+        .eq('es_combo', false)
         .gt('stock_disponible', 0)
         .not('precio_oferta', 'is', null);
 
@@ -201,7 +205,8 @@ const shopController = {
           tienda_id, tiempo_garantia
         `)
         .eq('tienda_id', id)
-        .eq('estado_aprobacion', 'publicado');
+        .eq('estado_aprobacion', 'publicado')
+        .eq('es_combo', false);
 
       if (errorProductos) console.error('❌ Error productos:', errorProductos.message);
 
