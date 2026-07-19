@@ -533,7 +533,7 @@ router.delete('/productos-vendedor/:id', async (req, res) => {
 router.get('/categorias', async (req, res) => {
   try {
     const { data, error } = await supabase
-      .from('categorias').select('id, nombre, slug, url_icono, subcategorias(id, nombre)').order('nombre')
+      .from('categorias').select('id, nombre, slug, url_icono, emoji, subcategorias(id, nombre)').order('nombre')
     if (error) throw error
     res.json(data)
   } catch (err) { res.status(500).json({ error: err.message }) }
