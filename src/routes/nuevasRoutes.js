@@ -1262,7 +1262,24 @@ router.get('/ofertas-flash/count', async (req, res) => {
   }
 })
 
-// GET /api/ofertas-flash/activas — con join de tiendas
+// GET /api/promociones/count — huella ligera de TODAS las promociones
+// (no solo flash). Sirve para que la app detecte cuando el admin
+// elimina/despublica un producto y refresque la pantalla de ofertas.
+router.get('/promociones/count', async (req, res) => {
+  try {
+    // Cuenta productos publicados con oferta (precio_oferta) o flash,
+    // excluyendo combos. Es una huella: si cambia, algo se movió.
+    const { count, error } = await supabase
+      .from('productos')
+      .select('id', { count: 'exact', head: true })
+      .eq('estado_aprobacion', 'publicado')
+      .eq('es_combo', false)
+    if (error) throw error
+    res.json({ count: count ?? 0 })
+  } catch (err) {
+    res.status(500).json({ error: err.message, count: 0 })
+  }
+})
 // ══════════════════════════════════════════════════════════════
 router.get('/ofertas-flash/activas', async (req, res) => {
   try {
