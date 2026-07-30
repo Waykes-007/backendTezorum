@@ -1,5 +1,131 @@
 const referralService = require('../services/referralService');
 const supabase = require('../config/supabase');
+const { enviarCodigoRecuperacion } = require('./emailController');
+
+// ── Recuperación de contraseña por CORREO ─────────────────────
+// Paso 1: el usuario ingresa su correo. Si existe, generamos un
+// código de 6 dígitos, lo guardamos (vence en 10 min) y lo enviamos
+// por Resend. Por seguridad, la respuesta es la misma exista o no
+// el correo (para no revelar qué correos están registrados).
+exports.recuperarSolicitar = async (req, res) => {
+    try {
+        const { correo } = req.body;
+        if (!correo) {
+            return res.status(400).json({ message: 'Ingresa tu correo' });
+        }
+        const correoLimpio = correo.trim().toLowerCase();
+
+        // ¿Existe el usuario?
+        const { data: usuario } = await supabase
+            .from('usuarios')
+            .select('id, correo_electronico')
+            .ilike('correo_electronico', correoLimpio)
+            .maybeSingle();
+
+        // Respuesta uniforme (no revelar si el correo existe)
+        const respuestaGenerica = {
+            message: 'Si el correo está registrado, te enviamos un código.',
+        };
+
+        if (!usuario) {
+            return res.status(200).json(respuestaGenerica);
+        }
+
+        // Generar código de 6 dígitos
+        const codigo = Math.floor(100000 + Math.random() * 900000).toString();
+        const expira = new Date(Date.now() + 10 * 60 * 1000).toISOString(); // 10 min
+
+        // Invalidar códigos anteriores de este correo y guardar el nuevo
+        await supabase.from('codigos_recuperacion')
+            .update({ usado: true })
+            .eq('correo', correoLimpio)
+            .eq('usado', false);
+
+        await supabase.from('codigos_recuperacion').insert([{
+            correo:    correoLimpio,
+            codigo,
+            expira_en: expira,
+        }]);
+
+        // Enviar por Resend
+        await enviarCodigoRecuperacion({ correo: correoLimpio, codigo });
+
+        return res.status(200).json(respuestaGenerica);
+    } catch (error) {
+        console.error('❌ Error recuperarSolicitar:', error.message);
+        return res.status(500).json({ error: error.message });
+    }
+};
+
+// Paso 2: el usuario ingresa el código + su nueva contraseña.
+// Validamos el código y, si es correcto, cambiamos la contraseña
+// con la Admin API de Supabase.
+exports.recuperarConfirmar = async (req, res) => {
+    try {
+        const { correo, codigo, nuevaPassword } = req.body;
+        if (!correo || !codigo || !nuevaPassword) {
+            return res.status(400).json({ message: 'Faltan datos' });
+        }
+        if (nuevaPassword.length < 6) {
+            return res.status(400).json({ message: 'La contraseña debe tener al menos 6 caracteres' });
+        }
+        const correoLimpio = correo.trim().toLowerCase();
+
+        // Buscar el código vigente
+        const { data: registro } = await supabase
+            .from('codigos_recuperacion')
+            .select('*')
+            .eq('correo', correoLimpio)
+            .eq('usado', false)
+            .order('creado_en', { ascending: false })
+            .maybeSingle();
+
+        if (!registro) {
+            return res.status(400).json({ message: 'Solicita un código primero' });
+        }
+        if (new Date(registro.expira_en) < new Date()) {
+            return res.status(400).json({ message: 'El código venció. Solicita uno nuevo.' });
+        }
+        if (registro.intentos >= 5) {
+            return res.status(400).json({ message: 'Demasiados intentos. Solicita un código nuevo.' });
+        }
+        if (registro.codigo !== codigo.trim()) {
+            // Contar el intento fallido
+            await supabase.from('codigos_recuperacion')
+                .update({ intentos: registro.intentos + 1 })
+                .eq('id', registro.id);
+            return res.status(400).json({ message: 'Código incorrecto' });
+        }
+
+        // Código correcto → buscar el usuario en Auth y cambiar contraseña
+        const { data: usuario } = await supabase
+            .from('usuarios')
+            .select('id')
+            .ilike('correo_electronico', correoLimpio)
+            .maybeSingle();
+
+        if (!usuario) {
+            return res.status(404).json({ message: 'Usuario no encontrado' });
+        }
+
+        // Cambiar contraseña con la Admin API (requiere service_role)
+        const { error: updateError } = await supabase.auth.admin.updateUserById(
+            usuario.id,
+            { password: nuevaPassword }
+        );
+        if (updateError) throw updateError;
+
+        // Marcar el código como usado
+        await supabase.from('codigos_recuperacion')
+            .update({ usado: true })
+            .eq('id', registro.id);
+
+        return res.status(200).json({ message: 'Contraseña actualizada. Ya puedes iniciar sesión.' });
+    } catch (error) {
+        console.error('❌ Error recuperarConfirmar:', error.message);
+        return res.status(500).json({ error: error.message });
+    }
+};
 
 /**
  * PASO 1: Registro Inicial
@@ -237,4 +363,4 @@ exports.obtenerPerfil = async (req, res) => {
     } catch (e) {
         res.status(500).json({ error: e.message });
     }
-}; //
+};
