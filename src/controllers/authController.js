@@ -77,6 +77,74 @@ exports.login = async (req, res) => {
     }
 };
 /**
+ * INICIO DE SESIÓN CON GOOGLE
+ * Recibe el idToken de Google desde la app, lo valida con Supabase,
+ * y crea la fila en 'usuarios' si es la primera vez. Devuelve el
+ * token normal + esNuevo (para mostrar la pantalla de referido).
+ */
+exports.google = async (req, res) => {
+    try {
+        const { idToken, accessToken } = req.body;
+        if (!idToken) {
+            return res.status(400).json({ message: 'Falta el idToken de Google' });
+        }
+
+        // 1. Validar el token de Google con Supabase Auth
+        const { data, error } = await supabase.auth.signInWithIdToken({
+            provider: 'google',
+            token: idToken,
+            access_token: accessToken,
+        });
+        if (error) throw error;
+
+        const authUser = data.user;
+        const token    = data.session?.access_token ?? null;
+
+        // 2. ¿Ya existe en nuestra tabla 'usuarios'?
+        const { data: existente } = await supabase
+            .from('usuarios')
+            .select('id, telefono')
+            .eq('id', authUser.id)
+            .maybeSingle();
+
+        let esNuevo = false;
+
+        // 3. Si es nuevo, crear la fila con lo MÍNIMO (nombre, correo,
+        //    avatar). El resto (DNI, dirección) se pide al comprar.
+        if (!existente) {
+            esNuevo = true;
+            const meta = authUser.user_metadata || {};
+            await supabase.from('usuarios').upsert({
+                id:                 authUser.id,
+                correo_electronico: authUser.email,
+                nombre_completo:    meta.full_name || meta.name || 'Usuario Waykes',
+                avatar_url:         meta.avatar_url || meta.picture || null,
+                saldo_disponible:   0.00,
+            });
+        }
+
+        // 4. Devolver la sesión en el formato que espera Flutter
+        res.status(200).json({
+            message: 'Bienvenido a Waykes',
+            token,
+            user: {
+                id:    authUser.id,
+                email: authUser.email,
+            },
+            userId:  authUser.id,
+            email:   authUser.email,
+            esNuevo,
+        });
+    } catch (error) {
+        console.error('❌ Error google:', error.message);
+        res.status(401).json({
+            error:   'Error al iniciar con Google',
+            message: error.message,
+        });
+    }
+};
+
+/**
  * PASO 2: Completar Registro (Lógica de Referidos)
  * Verifica si el usuario usó un código para aplicar los bonos de la Guía.
  */
@@ -132,7 +200,7 @@ exports.validarCelular = async (req, res) => {
         // 2. Manejo de error de duplicado
         if (updateError) {
             if (updateError.code === '23505') { 
-                return res.status(400).json({ message: 'Este celular ya está vinculado a otra cuenta de Tezórum.' });
+                return res.status(400).json({ message: 'Este celular ya está vinculado a otra cuenta de Waykes.' });
             }
             throw updateError;
         }

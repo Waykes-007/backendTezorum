@@ -16,6 +16,7 @@ const { tokensTemporales, datosTemporales } = require('../utils/storage');
 
 router.post('/auth/register',           authController.register);
 router.post('/auth/login',              authController.login);
+router.post('/google', authController.google);
 router.post('/auth/completar-registro', authController.completarRegistro);
 router.post('/pedidos/crear',           orderController.crearPedido);
 router.post('/wallet/agregar',          walletController.reclamarPremioDiario);
