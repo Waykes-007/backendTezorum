@@ -8,10 +8,13 @@ const referralService = {
     async validarCodigo(codigo) {
         const codigoLimpio = codigo.trim().toUpperCase();
 
+        // Coincidencia EXACTA (case-insensitive). Antes usaba %..% que
+        // permitía coincidencias parciales: el código "ABC" podía calzar
+        // con "ABC123" y traer el anfitrión equivocado o fallar.
         const { data, error } = await supabase
             .from('usuarios')
             .select('id')
-            .ilike('codigo_referido_propio', `%${codigoLimpio}%`)
+            .ilike('codigo_referido_propio', codigoLimpio)
             .maybeSingle();
 
         if (error) return null;
