@@ -581,6 +581,7 @@ router.get('/usuarios/perfil/:id', async (req, res) => {
       .from('usuarios')
       .select(`
         id, nombre_completo, correo_electronico, telefono,
+        dni_ruc, direccion_referencia, distrito,
         saldo_disponible, codigo_referido_propio,
         id_referido_por, tiene_producto_gratis, rol
       `)
@@ -589,6 +590,96 @@ router.get('/usuarios/perfil/:id', async (req, res) => {
     if (error) throw error
     res.json(data)
   } catch (err) { res.status(500).json({ error: err.message }) }
+})
+
+// ── ¿Al usuario le faltan datos indispensables? ───────────────
+// Indispensables = nombre + DNI + teléfono. Sirve para el aviso
+// "completa tus datos" que aparece al iniciar sesión / cada 24h.
+router.get('/usuarios/:id/datos-completos', async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from('usuarios')
+      .select('nombre_completo, dni_ruc, telefono')
+      .eq('id', req.params.id)
+      .single()
+    if (error) throw error
+
+    const faltan = []
+    if (!data.nombre_completo || data.nombre_completo.trim() === '' ||
+        data.nombre_completo === 'Usuario Waykes') faltan.push('nombre')
+    if (!data.dni_ruc   || data.dni_ruc.trim()   === '') faltan.push('dni')
+    if (!data.telefono  || data.telefono.trim()  === '') faltan.push('telefono')
+
+    res.json({ completo: faltan.length === 0, faltan })
+  } catch (err) { res.status(500).json({ error: err.message }) }
+})
+
+// ── Guardar / editar "Mis datos" ──────────────────────────────
+// Reglas:
+//  - DNI: si el usuario YA tiene uno, no se puede cambiar.
+//  - Teléfono: si cambia, no puede estar en otra cuenta (23505).
+//  - Solo actualiza los campos que llegan.
+router.put('/usuarios/:id/datos', async (req, res) => {
+  try {
+    const { id } = req.params
+    const { nombre_completo, dni_ruc, telefono,
+            direccion_referencia, distrito } = req.body
+
+    // Traer el usuario actual para aplicar las reglas
+    const { data: actual, error: errGet } = await supabase
+      .from('usuarios')
+      .select('dni_ruc, telefono')
+      .eq('id', id)
+      .single()
+    if (errGet) throw errGet
+
+    const cambios = {}
+
+    if (nombre_completo !== undefined && nombre_completo.trim() !== '') {
+      cambios.nombre_completo = nombre_completo.trim()
+    }
+
+    // DNI: solo se puede setear si NO tenía uno antes
+    if (dni_ruc !== undefined && dni_ruc.trim() !== '') {
+      if (actual.dni_ruc && actual.dni_ruc.trim() !== '') {
+        return res.status(400).json({
+          message: 'El DNI ya está registrado y no se puede cambiar.',
+        })
+      }
+      cambios.dni_ruc = dni_ruc.trim()
+    }
+
+    // Teléfono (sin código por ahora): solo verificamos que sea único
+    if (telefono !== undefined && telefono.trim() !== '' &&
+        telefono.trim() !== actual.telefono) {
+      cambios.telefono = telefono.trim()
+    }
+
+    if (direccion_referencia !== undefined) cambios.direccion_referencia = direccion_referencia
+    if (distrito !== undefined)             cambios.distrito = distrito
+
+    if (Object.keys(cambios).length === 0) {
+      return res.status(200).json({ message: 'Sin cambios' })
+    }
+
+    const { error: errUpd } = await supabase
+      .from('usuarios')
+      .update(cambios)
+      .eq('id', id)
+
+    if (errUpd) {
+      if (errUpd.code === '23505') {
+        return res.status(400).json({
+          message: 'Ese número de celular ya está en otra cuenta.',
+        })
+      }
+      throw errUpd
+    }
+
+    res.json({ message: 'Datos actualizados correctamente' })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
 })
 
 module.exports = router
