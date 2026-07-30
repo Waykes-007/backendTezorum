@@ -35,17 +35,27 @@ exports.recuperarSolicitar = async (req, res) => {
         const codigo = Math.floor(100000 + Math.random() * 900000).toString();
         const expira = new Date(Date.now() + 10 * 60 * 1000).toISOString(); // 10 min
 
-        // Invalidar códigos anteriores de este correo y guardar el nuevo
+        // Invalidar códigos anteriores de este correo
         await supabase.from('codigos_recuperacion')
             .update({ usado: true })
             .eq('correo', correoLimpio)
             .eq('usado', false);
 
-        await supabase.from('codigos_recuperacion').insert([{
-            correo:    correoLimpio,
-            codigo,
-            expira_en: expira,
-        }]);
+        // Guardar el nuevo — VERIFICAMOS el error (antes se ignoraba,
+        // lo que hacía que el correo llegara pero el código no quedara
+        // guardado si algo fallaba, ej. RLS o columna faltante).
+        const { error: insertError } = await supabase
+            .from('codigos_recuperacion').insert([{
+                correo:    correoLimpio,
+                codigo,
+                expira_en: expira,
+            }]);
+        if (insertError) {
+            console.error('❌ Error guardando código:', insertError.message);
+            return res.status(500).json({
+                message: 'No se pudo generar el código. Intenta más tarde.',
+            });
+        }
 
         // Enviar por Resend
         await enviarCodigoRecuperacion({ correo: correoLimpio, codigo });
