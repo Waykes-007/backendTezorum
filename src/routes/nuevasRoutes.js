@@ -818,6 +818,39 @@ router.post('/usuarios/:id/telefono/confirmar', async (req, res) => {
   }
 })
 
+// Subir foto de perfil → bucket 'avatares' + guardar en usuarios.avatar_url
+router.post('/usuarios/:id/avatar', async (req, res) => {
+  try {
+    const { id } = req.params
+    const { imagen_base64, extension } = req.body
+    if (!imagen_base64) return res.status(400).json({ error: 'Falta la imagen' })
+
+    const ext = (extension || 'jpg').replace('.', '')
+    const nombreArchivo = `${id}_${Date.now()}.${ext}`
+    const buffer = Buffer.from(imagen_base64, 'base64')
+
+    const { error: uploadError } = await supabase.storage
+      .from('avatares')
+      .upload(nombreArchivo, buffer, {
+        contentType: `image/${ext === 'jpg' ? 'jpeg' : ext}`,
+        upsert: false,
+      })
+    if (uploadError) throw uploadError
+
+    const { data: urlData } = supabase.storage
+      .from('avatares')
+      .getPublicUrl(nombreArchivo)
+
+    // Guardar la url en el usuario
+    await supabase.from('usuarios')
+      .update({ avatar_url: urlData.publicUrl }).eq('id', id)
+
+    res.status(201).json({ url: urlData.publicUrl })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
 module.exports = router
 
 // ══════════════════════════════════════════════════════════════
