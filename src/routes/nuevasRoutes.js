@@ -7,6 +7,7 @@ const express       = require('express')
 const router        = express.Router()
 const supabase      = require('../config/supabase')
 const walletService = require('../services/walletService')
+const { enviarCodigoCambioTelefono } = require('../controllers/emailController')
 
 // ══════════════════════════════════════════════════════════════
 // UBICACIÓN GEOGRÁFICA (cascada Departamento → Provincia → Distrito)
@@ -677,6 +678,126 @@ router.put('/usuarios/:id/datos', async (req, res) => {
     }
 
     res.json({ message: 'Datos actualizados correctamente' })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// ── Cambio de teléfono (paso 1): solicitar código ─────────────
+// Solo cuando el usuario YA tiene un teléfono y quiere cambiarlo.
+// Valida que el nuevo número no esté en otra cuenta, y envía un
+// código al CORREO actual del usuario.
+router.post('/usuarios/:id/telefono/solicitar', async (req, res) => {
+  try {
+    const { id } = req.params
+    const { nuevoTelefono } = req.body
+    const tel = (nuevoTelefono || '').trim()
+
+    if (tel.length !== 9) {
+      return res.status(400).json({ message: 'El celular debe tener 9 dígitos' })
+    }
+
+    // Traer usuario actual (correo + teléfono actual)
+    const { data: usuario, error: errU } = await supabase
+      .from('usuarios')
+      .select('correo_electronico, telefono')
+      .eq('id', id)
+      .single()
+    if (errU) throw errU
+
+    // El nuevo número no puede ser igual al actual
+    if (usuario.telefono === tel) {
+      return res.status(400).json({ message: 'Ese ya es tu número actual' })
+    }
+
+    // El nuevo número no puede estar en otra cuenta
+    const { data: enUso } = await supabase
+      .from('usuarios')
+      .select('id')
+      .eq('telefono', tel)
+      .maybeSingle()
+    if (enUso) {
+      return res.status(400).json({ message: 'Ese número ya está en otra cuenta' })
+    }
+
+    // Generar código y guardarlo (tipo 'telefono', con el número nuevo)
+    const codigo = Math.floor(100000 + Math.random() * 900000).toString()
+    const expira = new Date(Date.now() + 10 * 60 * 1000).toISOString()
+
+    await supabase.from('codigos_recuperacion')
+      .update({ usado: true })
+      .eq('usuario_id', id).eq('tipo', 'telefono').eq('usado', false)
+
+    const { error: errIns } = await supabase.from('codigos_recuperacion').insert([{
+      correo:     usuario.correo_electronico,
+      codigo,
+      expira_en:  expira,
+      tipo:       'telefono',
+      dato_nuevo: tel,
+      usuario_id: id,
+    }])
+    if (errIns) throw errIns
+
+    // Enviar el código al correo actual
+    await enviarCodigoCambioTelefono({ correo: usuario.correo_electronico, codigo })
+
+    // Devolvemos el correo enmascarado para mostrar en la app
+    const correo = usuario.correo_electronico
+    const masked = correo.replace(/^(.{2}).*(@.*)$/, '$1***$2')
+    res.json({ message: 'Código enviado', correo: masked })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// ── Cambio de teléfono (paso 2): confirmar código ─────────────
+router.post('/usuarios/:id/telefono/confirmar', async (req, res) => {
+  try {
+    const { id } = req.params
+    const { codigo } = req.body
+
+    const { data: registro } = await supabase
+      .from('codigos_recuperacion')
+      .select('*')
+      .eq('usuario_id', id)
+      .eq('tipo', 'telefono')
+      .eq('usado', false)
+      .order('creado_en', { ascending: false })
+      .maybeSingle()
+
+    if (!registro) {
+      return res.status(400).json({ message: 'Solicita un código primero' })
+    }
+    if (new Date(registro.expira_en) < new Date()) {
+      return res.status(400).json({ message: 'El código venció. Solicita uno nuevo.' })
+    }
+    if (registro.intentos >= 5) {
+      return res.status(400).json({ message: 'Demasiados intentos. Solicita un código nuevo.' })
+    }
+    if (registro.codigo !== (codigo || '').trim()) {
+      await supabase.from('codigos_recuperacion')
+        .update({ intentos: registro.intentos + 1 })
+        .eq('id', registro.id)
+      return res.status(400).json({ message: 'Código incorrecto' })
+    }
+
+    // Código correcto → guardar el nuevo teléfono
+    const { error: errUpd } = await supabase
+      .from('usuarios')
+      .update({ telefono: registro.dato_nuevo })
+      .eq('id', id)
+
+    if (errUpd) {
+      if (errUpd.code === '23505') {
+        return res.status(400).json({ message: 'Ese número ya está en otra cuenta' })
+      }
+      throw errUpd
+    }
+
+    await supabase.from('codigos_recuperacion')
+      .update({ usado: true }).eq('id', registro.id)
+
+    res.json({ message: 'Teléfono actualizado correctamente' })
   } catch (err) {
     res.status(500).json({ error: err.message })
   }

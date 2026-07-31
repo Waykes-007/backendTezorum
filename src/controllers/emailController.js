@@ -422,4 +422,37 @@ const enviarCodigoRecuperacion = async ({ correo, codigo }) => {
   }
 };
 
-module.exports = { enviarTicketCompra, enviarCorreoVendedorConRotulo, enviarCodigoRecuperacion };
+// ── Código para cambio de teléfono ────────────────────────────
+const enviarCodigoCambioTelefono = async ({ correo, codigo }) => {
+  try {
+    await resend.emails.send({
+      from:    'Waykes <noreply@waykes.com>',
+      to:      correo,
+      subject: `${codigo} es tu código para cambiar tu teléfono - Waykes`,
+      html: `
+        <div style="max-width:480px;margin:0 auto;font-family:Arial,sans-serif;">
+          <div style="background:linear-gradient(135deg,#4902BE,#3D029E);padding:32px 24px;border-radius:16px 16px 0 0;text-align:center;">
+            <h1 style="color:#fff;margin:0;font-size:24px;font-style:italic;">Waykes</h1>
+          </div>
+          <div style="background:#fff;padding:32px 24px;border:1px solid #eee;border-top:none;border-radius:0 0 16px 16px;">
+            <h2 style="color:#333;font-size:18px;margin:0 0 12px;">Confirma el cambio de tu teléfono</h2>
+            <p style="color:#666;font-size:14px;line-height:1.5;margin:0 0 24px;">
+              Alguien solicitó cambiar el número de tu cuenta. Usa este código para confirmarlo. Vence en 10 minutos.
+            </p>
+            <div style="background:#F2ECFB;border-radius:12px;padding:20px;text-align:center;margin-bottom:24px;">
+              <span style="font-size:34px;font-weight:900;letter-spacing:8px;color:#4902BE;">${codigo}</span>
+            </div>
+            <p style="color:#999;font-size:12px;line-height:1.5;margin:0;">
+              Si no fuiste tú, ignora este correo y tu número seguirá igual.
+            </p>
+          </div>
+        </div>`,
+    });
+    return true;
+  } catch (error) {
+    console.error('❌ Error al enviar código de cambio de teléfono:', error);
+    return false;
+  }
+};
+
+module.exports = { enviarTicketCompra, enviarCorreoVendedorConRotulo, enviarCodigoRecuperacion, enviarCodigoCambioTelefono };
