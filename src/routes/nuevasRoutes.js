@@ -165,6 +165,19 @@ router.get('/notificaciones/:userId', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }) }
 })
 
+// Contar notificaciones NO leídas (para el punto rojo con número)
+router.get('/notificaciones/:userId/no-leidas', async (req, res) => {
+  try {
+    const { count, error } = await supabase
+      .from('notificaciones')
+      .select('id', { count: 'exact', head: true })
+      .eq('usuario_id', req.params.userId)
+      .eq('leida', false)
+    if (error) throw error
+    res.json({ noLeidas: count ?? 0 })
+  } catch (err) { res.status(500).json({ error: err.message }) }
+})
+
 // Notificaciones del vendedor por tiendaId
 router.get('/notificaciones/tienda/:tiendaId', async (req, res) => {
   try {
