@@ -165,11 +165,13 @@ router.get('/notificaciones/:userId', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }) }
 })
 
-// Contar notificaciones NO leídas (para el punto rojo con número)
+// Contar notificaciones NO leídas (para el punto rojo con número).
+// Usa notificaciones_usuario (tabla del CLIENTE), igual que /stats.
+// La tabla `notificaciones` a secas es exclusiva de vendedores.
 router.get('/notificaciones/:userId/no-leidas', async (req, res) => {
   try {
     const { count, error } = await supabase
-      .from('notificaciones')
+      .from('notificaciones_usuario')
       .select('id', { count: 'exact', head: true })
       .eq('usuario_id', req.params.userId)
       .eq('leida', false)
