@@ -1761,7 +1761,7 @@ router.get('/carrito/:userId', async (req, res) => {
       .from('carrito')
       .select(`
         id, producto_id, cantidad,
-        productos(id, nombre_producto, precio_normal, precio_oferta, precio_flash, imagenes)
+        productos(id, nombre_producto, precio_normal, precio_oferta, precio_flash, imagenes, stock_disponible)
       `)
       .eq('usuario_id', req.params.userId)
 

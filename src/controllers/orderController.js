@@ -98,6 +98,38 @@ const orderController = {
         console.log(`💰 Sin items para validar, usando monto de Izipay: ${subtotalCalculado}`);
       }
 
+      // ── 3.5 VALIDAR Y DESCONTAR STOCK (atómico) ──────────────────────────
+      // Antes de crear el pedido: verificar que TODOS los productos
+      // tengan stock suficiente. Si uno falla, se bloquea TODA la compra
+      // (y se revierte lo ya descontado). Evita condiciones de carrera
+      // con la función descontar_stock (UPDATE ... WHERE stock >= cantidad).
+      if (itemsCarrito.length > 0) {
+        const descontados = []; // para revertir si algo falla
+        for (const item of itemsCarrito) {
+          const pid = item.producto_id ?? item.productos?.id;
+          const cant = parseInt(item.cantidad) || 0;
+          if (!pid || cant <= 0) continue;
+
+          const { data: ok, error: errStock } = await supabase
+            .rpc('descontar_stock', { p_producto_id: pid, p_cantidad: cant });
+
+          if (errStock || ok !== true) {
+            // Revertir lo ya descontado en este pedido
+            for (const d of descontados) {
+              await supabase.rpc('descontar_stock',
+                { p_producto_id: d.pid, p_cantidad: -d.cant });
+            }
+            const nombre = item.productos?.nombre_producto ?? 'un producto';
+            return res.status(409).json({
+              error: `Sin stock suficiente para "${nombre}". Otro cliente pudo haberlo comprado. Revisa tu carrito.`,
+              sinStock: true,
+            });
+          }
+          descontados.push({ pid, cant });
+        }
+        console.log(`📉 Stock descontado de ${descontados.length} productos`);
+      }
+
       // ── 4. Actualizar perfil del usuario ──────────────────────────────────
       await supabase.from('usuarios').update({
         nombre_completo:      datos_entrega.nombre,
