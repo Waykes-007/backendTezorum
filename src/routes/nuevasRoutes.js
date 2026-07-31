@@ -597,7 +597,7 @@ router.get('/usuarios/perfil/:id', async (req, res) => {
       .from('usuarios')
       .select(`
         id, nombre_completo, correo_electronico, telefono,
-        dni_ruc, direccion_referencia, distrito,
+        dni_ruc, direccion_referencia, distrito, avatar_url,
         saldo_disponible, codigo_referido_propio,
         id_referido_por, tiene_producto_gratis, rol
       `)
