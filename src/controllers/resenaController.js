@@ -4,7 +4,7 @@ exports.obtenerResenas = async (req, res) => {
   const { productoId } = req.params;
   const { data, error } = await supabase
     .from('resenas')
-    .select('*, usuarios(nombre_completo)')
+    .select('*, usuarios(nombre_completo, avatar_url)')   // ← ahora también trae avatar_url
     .eq('producto_id', productoId)
     .order('fecha_creacion', { ascending: false });
   if (error) return res.status(500).json({ error: error.message });
