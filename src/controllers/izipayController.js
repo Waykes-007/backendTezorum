@@ -2,6 +2,7 @@ const axios  = require('axios');
 const crypto = require('crypto');
 const orderController = require('./orderController');
 const supabase = require('../config/supabase');
+const { calcularTotales, r2 } = require('../utils/cupones');
 
 const IZIPAY_USERNAME = process.env.IZIPAY_USERNAME;
 const IZIPAY_PASSWORD = process.env.IZIPAY_PASSWORD_TEST;
@@ -9,29 +10,55 @@ const IZIPAY_BASE_URL = 'https://api.micuentaweb.pe';
 
 const { tokensTemporales, datosTemporales } = require('../utils/storage');
 
+// Select del carrito (incluye categoria_id para cupones por categoría)
+const SELECT_CARRITO =
+  'producto_id, cantidad, productos(id, nombre_producto, precio_normal, precio_oferta, categoria_id, tienda_id, tiendas(id, nombre_tienda, email))';
+
+// ── Recalcula el total legítimo en el servidor (blindaje anti-manipulación) ──
+// Devuelve { subtotal, descuento, cuponId, totalReal } o null si el carrito
+// está vacío (en ese caso se confía en el total del cliente, como antes).
+async function blindarTotal({ itemsCarrito, cliente }) {
+  if (!itemsCarrito || itemsCarrito.length === 0) return null;
+
+  const costoEnvio = Number(cliente.costoEnvio ?? 0);
+  const { subtotal, descuento, cuponId } = await calcularTotales({
+    itemsCarrito,
+    codigoCupon: cliente.codigoCupon ?? null,
+    usuario_id:  cliente.userId,
+  });
+  const totalReal = r2(Math.max(0, subtotal - descuento + costoEnvio));
+  return { subtotal, descuento, cuponId, totalReal, costoEnvio };
+}
+
 // ── Generar token de pago (Tarjeta) ──────────────────────────────────────────
 const crearFormToken = async (req, res) => {
   try {
     const { total, orderId, cliente } = req.body;
     const credentials = Buffer.from(`${IZIPAY_USERNAME}:${IZIPAY_PASSWORD}`).toString('base64');
 
-    // ── Leer carrito AHORA antes de que el usuario pague ─────────────────────
-    // Lo guardamos en datosTemporales para no depender del carrito al recibir el webhook
     console.log('🛒 Leyendo carrito para token:', cliente.userId);
     const { data: itemsCarrito, error: errCart } = await supabase
-      .from('carrito')
-      .select('producto_id, cantidad, productos(id, nombre_producto, precio_normal, precio_oferta, tienda_id, tiendas(id, nombre_tienda, email))')
-      .eq('usuario_id', cliente.userId);
+      .from('carrito').select(SELECT_CARRITO).eq('usuario_id', cliente.userId);
 
-    if (errCart) {
-      console.error('❌ Error al leer carrito en crearFormToken:', errCart.message);
-    }
+    if (errCart) console.error('❌ Error al leer carrito en crearFormToken:', errCart.message);
     console.log(`✅ Carrito leído: ${itemsCarrito?.length ?? 0} items`);
+
+    // ── Blindaje: el total lo decide el servidor, no el cliente ──
+    const blindado = await blindarTotal({ itemsCarrito, cliente });
+    const totalACobrar = blindado ? blindado.totalReal : Number(total);
+
+    if (blindado && Math.abs(totalACobrar - Number(total)) > 1) {
+      console.warn(`⚠️ Total no coincide. Cliente=${total} Servidor=${totalACobrar}`);
+      return res.status(409).json({
+        error: 'El total cambió (precios o cupón). Refresca el carrito e intenta de nuevo.',
+        total_correcto: totalACobrar,
+      });
+    }
 
     const response = await axios.post(
       `${IZIPAY_BASE_URL}/api-payment/V4/Charge/CreatePayment`,
       {
-        amount:   Math.round(total * 100),
+        amount:   Math.round(totalACobrar * 100),
         currency: 'PEN',
         orderId:  orderId,
         customer: {
@@ -50,13 +77,13 @@ const crearFormToken = async (req, res) => {
       datosTemporales.set(tokenId, {
         usuario_id:    cliente.userId,
         datosEntrega:  cliente.datosEntrega ?? {},
-        monto:         total,
-        subtotal:      cliente.subtotal ?? total,
-        costo_envio:   cliente.costoEnvio ?? 0,
+        monto:         totalACobrar,
+        subtotal:      blindado ? blindado.subtotal   : (cliente.subtotal ?? totalACobrar),
+        costo_envio:   blindado ? blindado.costoEnvio : (cliente.costoEnvio ?? 0),
         codigoCupon:   cliente.codigoCupon ?? null,
         tipo_envio:    cliente.tipoEnvio ?? 'Normal',
         orderId:       orderId,
-        itemsCarrito:  itemsCarrito ?? [], // ← guardado para el webhook
+        itemsCarrito:  itemsCarrito ?? [],
       });
 
       setTimeout(() => {
@@ -80,22 +107,29 @@ const crearTokenYape = async (req, res) => {
     const { total, orderId, cliente } = req.body;
     const credentials = Buffer.from(`${IZIPAY_USERNAME}:${IZIPAY_PASSWORD}`).toString('base64');
 
-    // ── Leer carrito AHORA ────────────────────────────────────────────────────
     console.log('🛒 Leyendo carrito para token Yape:', cliente.userId);
     const { data: itemsCarrito, error: errCart } = await supabase
-      .from('carrito')
-      .select('producto_id, cantidad, productos(id, nombre_producto, precio_normal, precio_oferta, tienda_id, tiendas(id, nombre_tienda, email))')
-      .eq('usuario_id', cliente.userId);
+      .from('carrito').select(SELECT_CARRITO).eq('usuario_id', cliente.userId);
 
-    if (errCart) {
-      console.error('❌ Error al leer carrito en crearTokenYape:', errCart.message);
-    }
+    if (errCart) console.error('❌ Error al leer carrito en crearTokenYape:', errCart.message);
     console.log(`✅ Carrito leído: ${itemsCarrito?.length ?? 0} items`);
+
+    // ── Blindaje: el total lo decide el servidor, no el cliente ──
+    const blindado = await blindarTotal({ itemsCarrito, cliente });
+    const totalACobrar = blindado ? blindado.totalReal : Number(total);
+
+    if (blindado && Math.abs(totalACobrar - Number(total)) > 1) {
+      console.warn(`⚠️ Total Yape no coincide. Cliente=${total} Servidor=${totalACobrar}`);
+      return res.status(409).json({
+        error: 'El total cambió (precios o cupón). Refresca el carrito e intenta de nuevo.',
+        total_correcto: totalACobrar,
+      });
+    }
 
     const response = await axios.post(
       `${IZIPAY_BASE_URL}/api-payment/V4/Charge/CreatePayment`,
       {
-        amount:       Math.round(total * 100),
+        amount:       Math.round(totalACobrar * 100),
         currency:     'PEN',
         orderId:      orderId,
         paymentForms: [{ paymentMethodType: 'YAPE_CODE' }],
@@ -115,13 +149,13 @@ const crearTokenYape = async (req, res) => {
       datosTemporales.set(tokenId, {
         usuario_id:    cliente.userId,
         datosEntrega:  cliente.datosEntrega ?? {},
-        monto:         total,
-        subtotal:      cliente.subtotal ?? total,
-        costo_envio:   cliente.costoEnvio ?? 0,
+        monto:         totalACobrar,
+        subtotal:      blindado ? blindado.subtotal   : (cliente.subtotal ?? totalACobrar),
+        costo_envio:   blindado ? blindado.costoEnvio : (cliente.costoEnvio ?? 0),
         codigoCupon:   cliente.codigoCupon ?? null,
         tipo_envio:    cliente.tipoEnvio ?? 'Normal',
         orderId:       orderId,
-        itemsCarrito:  itemsCarrito ?? [], // ← guardado para el webhook
+        itemsCarrito:  itemsCarrito ?? [],
       });
 
       setTimeout(() => {
@@ -218,7 +252,6 @@ const webhook = async (req, res) => {
       await orderController.crearPedido(fakeReq, fakeRes);
 
       // Vaciar el carrito del backend tras la compra exitosa
-      // (evita que filas viejas o duplicadas entren en el próximo pedido)
       try {
         await supabase.from('carrito').delete()
           .eq('usuario_id', datosPedido.usuario_id);

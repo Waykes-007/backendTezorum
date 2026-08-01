@@ -7,7 +7,9 @@ const express       = require('express')
 const router        = express.Router()
 const supabase      = require('../config/supabase')
 const walletService = require('../services/walletService')
+const recompensasController = require('../controllers/recompensasController');
 const { enviarCodigoCambioTelefono } = require('../controllers/emailController')
+
 
 // ══════════════════════════════════════════════════════════════
 // UBICACIÓN GEOGRÁFICA (cascada Departamento → Provincia → Distrito)
@@ -1785,6 +1787,8 @@ router.get('/carrito/:userId', async (req, res) => {
     res.json(resultado)
   } catch (err) { res.status(500).json({ error: err.message }) }
 })
+router.get('/recompensas/:userId',          recompensasController.obtenerRecompensas);
+router.post('/recompensas/:userId/reclamar', recompensasController.reclamarRecompensa);
 
 router.post('/carrito/agregar', async (req, res) => {
   try {
@@ -1861,3 +1865,4 @@ router.post('/resenas/subir-imagen', async (req, res) => {
     res.status(500).json({ error: err.message })
   }
 })
+

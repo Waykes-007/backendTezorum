@@ -159,6 +159,19 @@ const orderController = {
           .eq('id', datos_entrega.distrito_id).single();
         if (distData) nombreDistrito = distData.distrito;
       }
+      // ── 7.5 Resolver cupón (id + descuento aplicado) ──────────────────────
+      let cuponRow = null;
+      if (cupon_usado) {
+        const { data: cuponData } = await supabase
+          .from('cupones').select('id, usos_actuales')
+          .eq('codigo', cupon_usado.trim().toUpperCase()).single();
+        if (cuponData) cuponRow = cuponData;
+      }
+      const descuentoAplicado = cuponRow
+        ? Math.max(0, Number(
+            (subtotalCalculado + (parseFloat(costo_envio) || 0) - parseFloat(monto_total_pagar)).toFixed(2)
+          ))
+        : 0;
 
       // ── 8. Insertar pedido ────────────────────────────────────────────────
       console.log('📝 Insertando pedido...');
@@ -179,6 +192,8 @@ const orderController = {
           nombre_destinatario:   datos_entrega.nombre,
           tipo_envio:            tipo_envio ?? 'Normal',
           cupon_usado:           cupon_usado ?? null,
+          cupon_id:              cuponRow?.id ?? null,
+          descuento_aplicado:    descuentoAplicado,
           estado_pedido:         pago?.estado === 'aprobado' ? 'pagado' : 'pendiente',
           oferta_flash_id:       primeraOferta?.id ?? null,
           precio_flash_aplicado: primeraOferta ? parseFloat(primeraOferta.precio_oferta) : null,
@@ -227,15 +242,10 @@ const orderController = {
       }
 
       // ── 12. Quemar cupón ──────────────────────────────────────────────────
-      if (cupon_usado) {
-        const { data: cuponData } = await supabase
-          .from('cupones').select('id, usos_actuales')
-          .eq('codigo', cupon_usado.trim().toUpperCase()).single();
-        if (cuponData) {
-          await supabase.from('cupones')
-            .update({ usos_actuales: cuponData.usos_actuales + 1 })
-            .eq('id', cuponData.id);
-        }
+      if (cuponRow) {
+        await supabase.from('cupones')
+          .update({ usos_actuales: (cuponRow.usos_actuales ?? 0) + 1 })
+          .eq('id', cuponRow.id);
       }
 
       // ── 13. Incrementar usos ofertas ──────────────────────────────────────
