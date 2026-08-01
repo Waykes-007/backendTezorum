@@ -334,6 +334,15 @@ router.post('/ruleta/girar', async (req, res) => {
     await supabase.from('usuarios')
       .update({ ultima_ruleta: new Date().toISOString() }).eq('id', usuario_id)
 
+    // Registrar el giro del día → alimenta el conteo de "giros de ruleta" en recompensas.
+    // El unique (usuario_id, fecha_reclamado) evita duplicados; si choca, se ignora.
+    await supabase.from('recompensas_diarias').insert([{
+      usuario_id,
+      premio_otorgado: premio.descripcion,
+      valor_premio:    premio.valor ?? 0,
+      fecha_reclamado: new Date().toISOString().split('T')[0],
+    }])
+
     if (premio.tipo === 'saldo' && premio.valor > 0) {
       await walletService.modificarSaldo(
         usuario_id, premio.valor, 'ingreso',
