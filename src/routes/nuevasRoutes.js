@@ -1628,6 +1628,7 @@ router.get('/productos/:id', async (req, res) => {
       .select(`
         id, nombre_producto, descripcion, precio_normal, precio_oferta,
         precio_flash, imagenes, calificacion_promedio, stock_disponible,
+        stock_inicial, caracteristicas,
         estado_aprobacion, tienda_id, categoria_id, subcategoria_id,
         es_oferta_flash, es_mas_vendido, es_combo,
         subcategorias(id, nombre),
