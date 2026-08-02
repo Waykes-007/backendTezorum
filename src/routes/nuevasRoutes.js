@@ -883,7 +883,7 @@ router.get('/promociones', async (req, res) => {
         banner_img_pos_x, banner_img_pos_y, banner_img_zoom,
         banner_color_1, banner_color_2,
         productos(id, nombre_producto, imagenes, precio_normal, precio_oferta,
-          estado_aprobacion, calificacion_promedio,
+          estado_aprobacion, calificacion_promedio, stock_disponible,
           tiendas(id, nombre_tienda, es_vendedor_oro, tienda_verificada))
       `)
       .eq('activa', true)
@@ -918,6 +918,7 @@ router.get('/promociones', async (req, res) => {
       calificacion_promedio: o.productos.calificacion_promedio ?? 0,
       es_vendedor_oro:      o.productos.tiendas?.es_vendedor_oro === true,
       tienda_verificada:    o.productos.tiendas?.tienda_verificada === true,
+      stock_disponible:     o.productos.stock_disponible ?? 0,
       // ⭐ NUEVO — para el spotlight de la pantalla de ofertas
       nombre_tienda:        o.productos.tiendas?.nombre_tienda ?? null,
       banner_personalizado: o.banner_personalizado === true,
@@ -938,7 +939,7 @@ router.get('/promociones', async (req, res) => {
       .from('productos')
       .select(`id, nombre_producto, imagenes, precio_normal, precio_oferta,
         es_oferta_flash, precio_flash, tienda_id, es_liquidacion,
-        calificacion_promedio, estado_aprobacion`)
+        calificacion_promedio, estado_aprobacion, stock_disponible`)
       .eq('estado_aprobacion', 'publicado')
       .eq('es_combo', false)
       .limit(500)
@@ -971,13 +972,14 @@ router.get('/promociones', async (req, res) => {
           calificacion_promedio: p.calificacion_promedio ?? 0,
           es_vendedor_oro:      t.es_vendedor_oro === true,
           tienda_verificada:    t.tienda_verificada === true,
+          stock_disponible:     p.stock_disponible ?? 0,
         }
       })
 
     // ── Más vendidos ─────────────────────────────────────────
     const { data: topData } = await supabase
       .from('productos')
-      .select('id, nombre_producto, imagenes, precio_normal, precio_oferta')
+      .select('id, nombre_producto, imagenes, precio_normal, precio_oferta, stock_disponible')
       .eq('es_mas_vendido', true)
       .eq('estado_aprobacion', 'publicado')
       .eq('es_combo', false)
@@ -989,12 +991,13 @@ router.get('/promociones', async (req, res) => {
       imagen:           Array.isArray(p.imagenes) && p.imagenes.length > 0 ? p.imagenes[0] : null,
       precio_normal:    parseFloat(p.precio_normal) || 0,
       precio_promocion: parseFloat(p.precio_oferta ?? p.precio_normal) || 0,
+      stock_disponible: p.stock_disponible ?? 0,
     }))
 
     if (mas_vendidos.length === 0) {
       const { data: topRating } = await supabase
         .from('productos')
-        .select('id, nombre_producto, imagenes, precio_normal, precio_oferta, calificacion_promedio')
+        .select('id, nombre_producto, imagenes, precio_normal, precio_oferta, calificacion_promedio, stock_disponible')
         .eq('estado_aprobacion', 'publicado')
         .eq('es_combo', false)
         .order('calificacion_promedio', { ascending: false })
@@ -1005,6 +1008,7 @@ router.get('/promociones', async (req, res) => {
         imagen:           Array.isArray(p.imagenes) && p.imagenes.length > 0 ? p.imagenes[0] : null,
         precio_normal:    parseFloat(p.precio_normal) || 0,
         precio_promocion: parseFloat(p.precio_oferta ?? p.precio_normal) || 0,
+        stock_disponible: p.stock_disponible ?? 0,
       }))
     }
 
@@ -1038,6 +1042,7 @@ router.get('/promociones', async (req, res) => {
         calificacion_promedio: p.calificacion_promedio ?? 0,
         es_vendedor_oro:       t.es_vendedor_oro === true,
         tienda_verificada:     t.tienda_verificada === true,
+        stock_disponible:      p.stock_disponible ?? 0,
       }
     }
 
@@ -1105,7 +1110,7 @@ router.get('/promociones', async (req, res) => {
     const { data: combosData } = await supabase
       .from('productos')
       .select(`id, nombre_producto, imagenes, precio_normal, precio_oferta,
-        tienda_id, calificacion_promedio, categoria_oferta_id`)
+        tienda_id, calificacion_promedio, categoria_oferta_id, stock_disponible`)
       .eq('es_combo', true)
       .eq('estado_aprobacion', 'publicado')
       .limit(200)
@@ -1148,7 +1153,7 @@ router.get('/promociones', async (req, res) => {
     // ── Gancho < S/9.90 ──────────────────────────────────────
     const { data: ganchoData } = await supabase
       .from('productos')
-      .select('id, nombre_producto, imagenes, precio_normal, precio_oferta')
+      .select('id, nombre_producto, imagenes, precio_normal, precio_oferta, stock_disponible')
       .eq('es_gancho_menor_9_90', true)
       .eq('estado_aprobacion', 'publicado')
       .eq('es_combo', false)
@@ -1160,6 +1165,7 @@ router.get('/promociones', async (req, res) => {
       imagen:           Array.isArray(p.imagenes) && p.imagenes.length > 0 ? p.imagenes[0] : null,
       precio_normal:    parseFloat(p.precio_normal) || 0,
       precio_promocion: parseFloat(p.precio_oferta ?? p.precio_normal) || 0,
+      stock_disponible: p.stock_disponible ?? 0,
     }))
 
     res.json({
@@ -1938,4 +1944,3 @@ router.post('/productos/precios-vigentes', async (req, res) => {
     res.status(500).json({ error: err.message })
   }
 })
-
