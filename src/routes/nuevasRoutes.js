@@ -468,11 +468,46 @@ router.get('/resenas/usuario/:userId', async (req, res) => {
   try {
     const { data, error } = await supabase
       .from('resenas')
-      .select('id, calificacion, comentario, fecha_creacion, imagenes, productos(nombre_producto, imagenes)')
+      .select(`id, producto_id, calificacion, comentario, fecha_creacion, imagenes,
+        productos(id, nombre_producto, imagenes, precio_normal, precio_oferta,
+          precio_flash, es_oferta_flash, tienda_id,
+          tiendas(nombre_tienda, es_vendedor_oro))`)
       .eq('usuario_id', req.params.userId)
       .order('fecha_creacion', { ascending: false })
     if (error) throw error
     res.json(data)
+  } catch (err) { res.status(500).json({ error: err.message }) }
+})
+
+// PUT /api/resenas/:id  — editar calificación / comentario (y opcionalmente fotos)
+// Requiere usuario_id en el body: solo el dueño puede editar su reseña.
+router.put('/resenas/:id', async (req, res) => {
+  try {
+    const { calificacion, comentario, imagenes, usuario_id } = req.body
+    const update = {}
+    if (calificacion != null) update.calificacion = calificacion
+    if (comentario  != null) update.comentario  = comentario
+    if (imagenes    != null) update.imagenes    = imagenes
+    if (Object.keys(update).length === 0)
+      return res.status(400).json({ error: 'Nada que actualizar' })
+
+    let q = supabase.from('resenas').update(update).eq('id', req.params.id)
+    if (usuario_id) q = q.eq('usuario_id', usuario_id)
+    const { error } = await q
+    if (error) throw error
+    res.json({ message: 'Reseña actualizada ✅' })
+  } catch (err) { res.status(500).json({ error: err.message }) }
+})
+
+// DELETE /api/resenas/:id?usuario_id=...  — borrar la propia reseña
+router.delete('/resenas/:id', async (req, res) => {
+  try {
+    const { usuario_id } = req.query
+    let q = supabase.from('resenas').delete().eq('id', req.params.id)
+    if (usuario_id) q = q.eq('usuario_id', usuario_id)
+    const { error } = await q
+    if (error) throw error
+    res.json({ message: 'Reseña eliminada ✅' })
   } catch (err) { res.status(500).json({ error: err.message }) }
 })
 
