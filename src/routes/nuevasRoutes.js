@@ -494,12 +494,12 @@ router.put('/resenas/:id', async (req, res) => {
 
     let q = supabase.from('resenas').update(update).eq('id', req.params.id)
     if (usuario_id) q = q.eq('usuario_id', usuario_id)
-    const { data, error } = await q.select()          // ← ahora devuelve las filas tocadas
+    const { data, error } = await q.select()
     if (error) throw error
-    if (!data || data.length === 0)                    // ← 0 filas = no coincidió
-      return res.status(404).json({ error: 'Reseña no encontrada o no te pertenece' })
+    if (!data || data.length === 0)
+      return res.status(404).json({ error: 'Resena no encontrada o no te pertenece' })
 
-    res.json({ message: 'Reseña actualizada ✅', resena: data[0] })
+    res.json({ message: 'Resena actualizada', resena: data[0] })
   } catch (err) { res.status(500).json({ error: err.message }) }
 })
 
