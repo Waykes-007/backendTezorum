@@ -481,6 +481,7 @@ router.get('/resenas/usuario/:userId', async (req, res) => {
 
 // PUT /api/resenas/:id  — editar calificación / comentario (y opcionalmente fotos)
 // Requiere usuario_id en el body: solo el dueño puede editar su reseña.
+// PUT /api/resenas/:id  — editar calificación / comentario (y opcionalmente fotos)
 router.put('/resenas/:id', async (req, res) => {
   try {
     const { calificacion, comentario, imagenes, usuario_id } = req.body
@@ -493,9 +494,12 @@ router.put('/resenas/:id', async (req, res) => {
 
     let q = supabase.from('resenas').update(update).eq('id', req.params.id)
     if (usuario_id) q = q.eq('usuario_id', usuario_id)
-    const { error } = await q
+    const { data, error } = await q.select()          // ← ahora devuelve las filas tocadas
     if (error) throw error
-    res.json({ message: 'Reseña actualizada ✅' })
+    if (!data || data.length === 0)                    // ← 0 filas = no coincidió
+      return res.status(404).json({ error: 'Reseña no encontrada o no te pertenece' })
+
+    res.json({ message: 'Reseña actualizada ✅', resena: data[0] })
   } catch (err) { res.status(500).json({ error: err.message }) }
 })
 
