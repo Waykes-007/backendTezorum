@@ -1406,39 +1406,93 @@ router.get('/categorias', async (req, res) => {
 // ══════════════════════════════════════════════════════════════
 router.get('/productos', async (req, res) => {
   try {
-    const { limit = 20, offset = 0, estado = 'publicado', tiendaId, categoriaId, subcategoriaId } = req.query
+    const { limit = 20, offset = 0, estado = 'publicado',
+            tiendaId, categoriaId, subcategoriaId, seed } = req.query
+    const lim = parseInt(limit)
+    const off = parseInt(offset)
 
-    let query = supabase
-      .from('productos')
-      .select(`
+    const SELECT = `
         id, nombre_producto, descripcion, precio_normal, precio_oferta,
         precio_flash, imagenes, calificacion_promedio, stock_disponible,
         estado_aprobacion, tienda_id, categoria_id, subcategoria_id,
         es_oferta_flash, es_mas_vendido,
         subcategorias(id, nombre),
-        tiendas(id, nombre_tienda, tienda_verificada, es_vendedor_oro)
-      `)
-      .eq('estado_aprobacion', estado)
-      .eq('es_combo', false)
-      .range(parseInt(offset), parseInt(offset) + parseInt(limit) - 1)
-      // ⭐ Prioridad Plan Oro: los productos de tiendas Oro aparecen
-      // primero en el feed (beneficio "Primeras posiciones").
-      // El orden se aplica en la query (no en la app) para que la
-      // paginación funcione correctamente desde la página 1.
-      .order('tiendas(es_vendedor_oro)', { ascending: false, nullsFirst: false })
-      .order('fecha_creacion', { ascending: false })
+        tiendas(id, nombre_tienda, tienda_verificada, es_vendedor_oro)`
 
-    if (tiendaId)       query = query.eq('tienda_id', tiendaId)
-    if (categoriaId)    query = query.eq('categoria_id', parseInt(categoriaId))
-    if (subcategoriaId) query = query.eq('subcategoria_id', parseInt(subcategoriaId))
+    // Hash estable: mismo (seed + id) => mismo número. Da un orden
+    // "aleatorio" por sesión que se mantiene igual entre páginas.
+    const hashStable = (str) => {
+      let h = 5381
+      for (let i = 0; i < str.length; i++) h = ((h << 5) + h + str.charCodeAt(i)) >>> 0
+      return h
+    }
 
-    const { data, error } = await query
-    if (error) throw error
+    let productos = []
 
-    const productos = data ?? []
+    if (seed && !tiendaId) {
+      // ── Orden GLOBAL en 4 bloques, estable por seed ──
+      // 1) Lista ligera de TODOS los productos publicados (solo para ordenar)
+      let ligera = supabase.from('productos')
+        .select('id, stock_disponible, tienda_id')
+        .eq('estado_aprobacion', estado)
+        .eq('es_combo', false)
+        .limit(5000)
+      if (categoriaId)    ligera = ligera.eq('categoria_id', parseInt(categoriaId))
+      if (subcategoriaId) ligera = ligera.eq('subcategoria_id', parseInt(subcategoriaId))
+      const { data: todos } = await ligera
+
+      // 2) Mapa de tiendas Oro
+      const { data: tiendasData } = await supabase
+        .from('tiendas').select('id, es_vendedor_oro')
+      const oroMap = {}
+      for (const t of (tiendasData ?? [])) oroMap[t.id] = t.es_vendedor_oro === true
+
+      // 3) Rango: 0=oro+stock 1=clásico+stock 2=oro+sinstock 3=clásico+sinstock
+      const rank = (p) => {
+        const oro   = oroMap[p.tienda_id] === true
+        const stock = (p.stock_disponible ?? 0) > 0
+        if (oro && stock)  return 0
+        if (!oro && stock) return 1
+        if (oro && !stock) return 2
+        return 3
+      }
+      const ordenados = (todos ?? []).sort((a, b) => {
+        const ra = rank(a), rb = rank(b)
+        if (ra !== rb) return ra - rb
+        return hashStable(seed + a.id) - hashStable(seed + b.id)
+      })
+
+      // 4) Cortar la página y traer los datos completos de esos ids
+      const pageIds = ordenados.slice(off, off + lim).map(p => p.id)
+      if (pageIds.length === 0) return res.json([])
+
+      const { data, error } = await supabase.from('productos').select(SELECT).in('id', pageIds)
+      if (error) throw error
+
+      // Supabase no respeta el orden de .in → re-ordenar según pageIds
+      const pos = {}
+      pageIds.forEach((id, i) => { pos[id] = i })
+      productos = (data ?? []).sort((a, b) => pos[a.id] - pos[b.id])
+
+    } else {
+      // ── Comportamiento anterior (sin seed, o filtrado por tienda) ──
+      let query = supabase.from('productos').select(SELECT)
+        .eq('estado_aprobacion', estado)
+        .eq('es_combo', false)
+        .range(off, off + lim - 1)
+        .order('tiendas(es_vendedor_oro)', { ascending: false, nullsFirst: false })
+        .order('fecha_creacion', { ascending: false })
+      if (tiendaId)       query = query.eq('tienda_id', tiendaId)
+      if (categoriaId)    query = query.eq('categoria_id', parseInt(categoriaId))
+      if (subcategoriaId) query = query.eq('subcategoria_id', parseInt(subcategoriaId))
+      const { data, error } = await query
+      if (error) throw error
+      productos = data ?? []
+    }
+
     if (productos.length === 0) return res.json([])
 
-    // Buscar ofertas_flash REALMENTE activas para estos productos
+    // ── Enriquecer con oferta flash y ventas (igual que antes) ──
     const ids = productos.map(p => p.id)
     const { data: ofertas } = await supabase
       .from('ofertas_flash')
@@ -1448,18 +1502,12 @@ router.get('/productos', async (req, res) => {
 
     const ofertasPorProducto = {}
     for (const o of (ofertas ?? [])) {
-      // Validar vigencia
       let vigente = true
-      if (o.tipo_limite === 'tiempo') vigente = new Date(o.valor_limite) > new Date()
-      if (o.tipo_limite === 'cantidad') {
-        const limite = parseInt(o.valor_limite) || 0
-        vigente = o.usos_actuales < limite
-      }
+      if (o.tipo_limite === 'tiempo')   vigente = new Date(o.valor_limite) > new Date()
+      if (o.tipo_limite === 'cantidad') vigente = o.usos_actuales < (parseInt(o.valor_limite) || 0)
       if (vigente) ofertasPorProducto[o.producto_id] = o
     }
 
-    // Calcular unidades vendidas reales — suma de cantidad en
-    // detalle_pedidos para pedidos ya entregados de cada producto.
     const { data: ventas } = await supabase
       .from('detalle_pedidos')
       .select('producto_id, cantidad, pedidos!inner(estado_pedido)')
@@ -1472,7 +1520,6 @@ router.get('/productos', async (req, res) => {
         (ventasPorProducto[v.producto_id] || 0) + (parseInt(v.cantidad) || 0)
     }
 
-    // Inyectar estado real de oferta flash y ventas en cada producto
     const resultado = productos.map(p => {
       const oferta = ofertasPorProducto[p.id]
       return {
