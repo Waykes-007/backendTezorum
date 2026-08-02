@@ -1921,4 +1921,21 @@ router.post('/resenas/subir-imagen', async (req, res) => {
     res.status(500).json({ error: err.message })
   }
 })
+// POST /api/productos/precios-vigentes  body: { ids: [...] }
+router.post('/productos/precios-vigentes', async (req, res) => {
+  try {
+    const { ids } = req.body
+    if (!Array.isArray(ids) || ids.length === 0) return res.json([])
+
+    const { data: productos, error } = await supabase
+      .from('productos')
+      .select('id, precio_normal, precio_oferta, precio_flash, es_oferta_flash, stock_disponible')
+      .in('id', ids)
+    if (error) throw error
+
+    res.json(productos ?? [])
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
 
