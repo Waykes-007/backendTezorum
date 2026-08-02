@@ -483,24 +483,37 @@ router.get('/resenas/usuario/:userId', async (req, res) => {
 // Requiere usuario_id en el body: solo el dueño puede editar su reseña.
 // PUT /api/resenas/:id  — editar calificación / comentario (y opcionalmente fotos)
 router.put('/resenas/:id', async (req, res) => {
+  console.log('==== PUT /resenas ENTRO ====')
+  console.log('id param:', req.params.id)
+  console.log('body:', JSON.stringify(req.body))
   try {
     const { calificacion, comentario, imagenes, usuario_id } = req.body
     const update = {}
     if (calificacion != null) update.calificacion = calificacion
     if (comentario  != null) update.comentario  = comentario
     if (imagenes    != null) update.imagenes    = imagenes
+    console.log('update a aplicar:', JSON.stringify(update))
+    console.log('usuario_id recibido:', usuario_id)
+
     if (Object.keys(update).length === 0)
       return res.status(400).json({ error: 'Nada que actualizar' })
 
     let q = supabase.from('resenas').update(update).eq('id', req.params.id)
     if (usuario_id) q = q.eq('usuario_id', usuario_id)
     const { data, error } = await q.select()
+
+    console.log('resultado data:', JSON.stringify(data))
+    console.log('resultado error:', JSON.stringify(error))
+
     if (error) throw error
     if (!data || data.length === 0)
       return res.status(404).json({ error: 'Resena no encontrada o no te pertenece' })
 
     res.json({ message: 'Resena actualizada', resena: data[0] })
-  } catch (err) { res.status(500).json({ error: err.message }) }
+  } catch (err) {
+    console.log('CATCH error:', err.message)
+    res.status(500).json({ error: err.message })
+  }
 })
 
 // DELETE /api/resenas/:id?usuario_id=...  — borrar la propia reseña
