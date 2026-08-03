@@ -9,14 +9,24 @@ async function expirarOfertasFlash(supabase) {
   try {
     const ahora = new Date().toISOString();
 
-    // 0) Auto-corrección: productos marcados como flash pero SIN precio_flash
-    //    válido (estado inconsistente que deja el badge pegado). Se limpian
-    //    en cada ciclo como red de seguridad.
-    await supabase
+    // 0) Auto-corrección: limpia CUALQUIER producto con flash "pegado"
+    //    (precio_flash o es_oferta_flash seteado) que NO tenga una oferta
+    //    activa. Cubre ofertas desactivadas por cualquier vía, no solo las
+    //    que expira este job.
+    const { data: activas } = await supabase
+      .from('ofertas_flash')
+      .select('producto_id')
+      .eq('activa', true);
+    const idsActivos = [...new Set((activas ?? []).map(o => o.producto_id))];
+
+    let limpieza = supabase
       .from('productos')
-      .update({ es_oferta_flash: false })
-      .eq('es_oferta_flash', true)
-      .is('precio_flash', null);
+      .update({ precio_flash: null, es_oferta_flash: false })
+      .or('precio_flash.not.is.null,es_oferta_flash.is.true');
+    if (idsActivos.length > 0) {
+      limpieza = limpieza.not('id', 'in', `(${idsActivos.join(',')})`);
+    }
+    await limpieza;
 
     // 1) Ofertas por TIEMPO que ya vencieron
     const { data: expiradasPorTiempo } = await supabase
