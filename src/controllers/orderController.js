@@ -1,5 +1,6 @@
 const supabase = require('../config/supabase');
 const { enviarTicketCompra, enviarCorreoVendedorConRotulo } = require('./emailController');
+const { cotizarEnvio, esCuponEnvioAplicable, aplicarCuponEnvio } = require('./cotizadorEnvio');
 
 const generarCodigoPedido = (numeroPedido, fecha) => {
   const anio   = new Date(fecha).getFullYear();
@@ -22,6 +23,7 @@ const orderController = {
       datos_entrega = {},
       tipo_envio,
       cupon_usado,
+      cupon_envio_id = null,
       pago = null,
       itemsCarrito: itemsCarritoGuardados = null,
     } = req.body;
@@ -48,6 +50,28 @@ const orderController = {
         console.log(`🛒 Items del carrito: ${itemsCarrito.length}`);
       } else {
         console.log(`✅ Usando ${itemsCarrito.length} items guardados del token`);
+      }
+
+      // ── 1.5 Datos de envío por producto (peso/medidas + vendedor) ─────────
+      const idsEnvio = itemsCarrito
+        .map(i => i.producto_id ?? i.productos?.id)
+        .filter(Boolean);
+      const mapaEnvioProd = {};
+      if (idsEnvio.length > 0) {
+        const { data: prodEnvio } = await supabase
+          .from('productos')
+          .select('id, tienda_id, peso_kg, largo_cm, ancho_cm, alto_cm, tiendas(user_id)')
+          .in('id', idsEnvio);
+        for (const p of (prodEnvio ?? [])) {
+          mapaEnvioProd[p.id] = {
+            peso_kg:     p.peso_kg,
+            largo_cm:    p.largo_cm,
+            ancho_cm:    p.ancho_cm,
+            alto_cm:     p.alto_cm,
+            tienda_id:   p.tienda_id,
+            vendedor_id: p.tiendas?.user_id ?? null,
+          };
+        }
       }
 
       // ── 2. Buscar ofertas flash activas ───────────────────────────────────
@@ -96,6 +120,76 @@ const orderController = {
         }
       } else {
         console.log(`💰 Sin items para validar, usando monto de Izipay: ${subtotalCalculado}`);
+      }
+
+      // ── 3.7 Cotizar envío + validar cupón de envío del vendedor ───────────
+      // Solo registramos subsidio si el cliente aplicó un cupón (cupon_envio_id)
+      // y este es válido para el carrito. NO tocamos costo_envio ni
+      // monto_total_pagar: eso ya viene calculado y cobrado por el cliente.
+      // Aquí solo dejamos registrado el subsidio que Waykes fronta, para
+      // recuperarlo en la liquidación del vendedor.
+      let subsidioEnvio = null;
+      if (cupon_envio_id && itemsCarrito.length > 0) {
+        const itemsEnvio = itemsCarrito.map(i => ({
+          producto: mapaEnvioProd[i.producto_id ?? i.productos?.id] ?? {},
+          cantidad: i.cantidad,
+        }));
+        const cotizacion = cotizarEnvio(itemsEnvio);
+
+        const vendedores = new Set(
+          itemsCarrito
+            .map(i => mapaEnvioProd[i.producto_id ?? i.productos?.id]?.vendedor_id)
+            .filter(Boolean)
+        );
+        const tiendasCarrito = new Set(
+          itemsCarrito
+            .map(i => mapaEnvioProd[i.producto_id ?? i.productos?.id]?.tienda_id)
+            .filter(Boolean)
+        );
+        const unicoVendedor = vendedores.size === 1;
+        const vendedorId = unicoVendedor ? [...vendedores][0] : null;
+        const tiendaId   = tiendasCarrito.size === 1 ? [...tiendasCarrito][0] : null;
+
+        const { data: cuponEnvioArr } = await supabase
+          .from('cupones_envio_vendedor')
+          .select('*')
+          .eq('id', cupon_envio_id)
+          .limit(1);
+        const cuponEnvio = (cuponEnvioArr ?? [])[0] ?? null;
+
+        // El cupón debe pertenecer al vendedor del carrito (anti-spoof)
+        const perteneceAlVendedor = !!cuponEnvio && cuponEnvio.vendedor_id === vendedorId;
+
+        const elegibilidad = esCuponEnvioAplicable(cuponEnvio, {
+          unicoVendedor,
+          subtotal: subtotalCalculado,
+          tieneCuponProducto: !!cupon_usado,
+        });
+
+        if (perteneceAlVendedor && elegibilidad.aplica) {
+          const r = aplicarCuponEnvio(cotizacion, cuponEnvio.descuento);
+          subsidioEnvio = {
+            vendedor_id: vendedorId,
+            tienda_id:   tiendaId,
+            cupon_id:    cuponEnvio.id,
+            ...r, // descuento_cupon, envio_base_referencia, envio_total_sin_descuento,
+                  // monto_subsidiado, envio_cobrado_cliente
+          };
+          const clienteEnvio = parseFloat(costo_envio) || 0;
+          if (Math.abs(clienteEnvio - r.envio_cobrado_cliente) > 0.5) {
+            console.warn(
+              `⚠️ Envío cobrado al cliente (${clienteEnvio}) ≠ calculado en servidor ` +
+              `(${r.envio_cobrado_cliente}). Se registra el subsidio del servidor.`
+            );
+          }
+          console.log(`✅ Cupón de envío válido. Subsidio: S/${r.monto_subsidiado}`);
+        } else {
+          console.warn(
+            `⚠️ Cupón de envío ${cupon_envio_id} no aplicable: ` +
+            `${!perteneceAlVendedor ? 'no pertenece al vendedor del carrito' : elegibilidad.motivo}. ` +
+            `No se registra subsidio.`
+          );
+        }
       }
 
       // ── 3.5 VALIDAR Y DESCONTAR STOCK (atómico) ──────────────────────────
@@ -210,6 +304,21 @@ const orderController = {
       await supabase.from('pedidos').update({ codigo_pedido: codigoPedido }).eq('id', pedidoInsertado.id);
       pedidoInsertado.codigo_pedido = codigoPedido;
       console.log('📋 Código:', codigoPedido);
+
+      // ── 9.5 Registrar subsidio de envío (si aplicó cupón del vendedor) ────
+      if (subsidioEnvio) {
+        const { error: errSubsidio } = await supabase
+          .from('subsidios_envio')
+          .insert([{ pedido_id: pedidoInsertado.id, ...subsidioEnvio }]);
+        if (errSubsidio) {
+          console.error('🚨 Error registrando subsidio de envío:', errSubsidio.message);
+        } else {
+          console.log(
+            `💸 Subsidio registrado: S/${subsidioEnvio.monto_subsidiado} ` +
+            `contra vendedor ${subsidioEnvio.vendedor_id}`
+          );
+        }
+      }
 
       // ── 10. Insertar detalles ─────────────────────────────────────────────
       let detallesData = [];

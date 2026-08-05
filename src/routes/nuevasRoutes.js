@@ -354,6 +354,9 @@ router.post('/ruleta/girar', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }) }
 })
 
+const shippingController = require('../controllers/shippingController');
+router.post('/cotizar-envio', shippingController.cotizarEnvioCarrito);
+
 // ══════════════════════════════════════════════════════════════
 // DASHBOARD VENDEDOR
 // subpedidos: tienda_id, estado, fecha_creacion ✅ (no tiene monto_vendedor)
