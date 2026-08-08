@@ -359,6 +359,7 @@ router.post('/cotizar-envio', shippingController.cotizarEnvioCarrito);
 
 const variantesController = require('../controllers/variantesController');
 router.get('/productos/:id/variantes', variantesController.getVariantesProducto);
+router.get('/productos/:id/imagenes-color', variantesController.getImagenesColor);
 
 // ══════════════════════════════════════════════════════════════
 // DASHBOARD VENDEDOR
