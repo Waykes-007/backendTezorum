@@ -80,6 +80,7 @@ const crearFormToken = async (req, res) => {
         monto:         totalACobrar,
         subtotal:      blindado ? blindado.subtotal   : (cliente.subtotal ?? totalACobrar),
         costo_envio:   blindado ? blindado.costoEnvio : (cliente.costoEnvio ?? 0),
+        cupon_envio_id: cliente.cupon_envio_id ?? null,
         codigoCupon:   cliente.codigoCupon ?? null,
         tipo_envio:    cliente.tipoEnvio ?? 'Normal',
         orderId:       orderId,
@@ -152,6 +153,7 @@ const crearTokenYape = async (req, res) => {
         monto:         totalACobrar,
         subtotal:      blindado ? blindado.subtotal   : (cliente.subtotal ?? totalACobrar),
         costo_envio:   blindado ? blindado.costoEnvio : (cliente.costoEnvio ?? 0),
+        cupon_envio_id: cliente.cupon_envio_id ?? null,
         codigoCupon:   cliente.codigoCupon ?? null,
         tipo_envio:    cliente.tipoEnvio ?? 'Normal',
         orderId:       orderId,
@@ -221,6 +223,7 @@ const webhook = async (req, res) => {
           datos_entrega:     datosPedido.datosEntrega,
           tipo_envio:        datosPedido.tipo_envio ?? 'Normal',
           cupon_usado:       datosPedido.codigoCupon ?? null,
+          cupon_envio_id:    datosPedido.cupon_envio_id ?? null,
           itemsCarrito:      datosPedido.itemsCarrito ?? [],
           pago: {
             estado:            'aprobado',
