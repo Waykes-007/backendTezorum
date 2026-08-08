@@ -12,7 +12,7 @@ const { tokensTemporales, datosTemporales } = require('../utils/storage');
 
 // Select del carrito (incluye categoria_id para cupones por categoría)
 const SELECT_CARRITO =
-  'producto_id, cantidad, productos(id, nombre_producto, precio_normal, precio_oferta, categoria_id, tienda_id, tiendas(id, nombre_tienda, email))';
+  'producto_id, cantidad, color, talla, productos(id, nombre_producto, precio_normal, precio_oferta, categoria_id, tienda_id, tiendas(id, nombre_tienda, email))';
 
 // ── Recalcula el total legítimo en el servidor (blindaje anti-manipulación) ──
 // Devuelve { subtotal, descuento, cuponId, totalReal } o null si el carrito

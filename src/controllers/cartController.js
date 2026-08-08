@@ -4,13 +4,13 @@ const cartController = {
 
   // ── Agregar o actualizar cantidad ──────────────────────────
   async agregarAlCarrito(req, res) {
-    const { usuario_id, producto_id, cantidad } = req.body;
+    const { usuario_id, producto_id, cantidad, color = null, talla = null } = req.body;
     try {
       const { data, error } = await supabase
         .from('carrito')
         .upsert(
-          { usuario_id, producto_id, cantidad },
-          { onConflict: 'usuario_id, producto_id' }
+          { usuario_id, producto_id, cantidad, color, talla },
+          { onConflict: 'usuario_id, producto_id, color, talla' }
         );
       if (error) throw error;
       res.status(200).json({ message: 'Producto guardado en la nube' });
@@ -30,6 +30,8 @@ const cartController = {
           id,
           cantidad,
           producto_id,
+          color,
+          talla,
           productos (
             id,
             nombre_producto,
@@ -97,6 +99,8 @@ const cartController = {
           id:          item.id,
           cantidad:    item.cantidad,
           producto_id: item.producto_id ?? prod?.id, // ← campo raíz para el orderController
+          color:       item.color ?? null,
+          talla:       item.talla ?? null,
           productos: {
             ...prod,
             precio_final:       precioFinal,
@@ -113,16 +117,22 @@ const cartController = {
     }
   },
 
-  // ── Eliminar producto del carrito ──────────────────────────
+  // ── Eliminar producto del carrito (variante específica) ────
   async eliminarDelCarrito(req, res) {
     const { userId, productoId } = req.params;
+    const { color = null, talla = null } = req.query;
     try {
-      const { error } = await supabase
+      let q = supabase
         .from('carrito')
         .delete()
         .eq('usuario_id', userId)
         .eq('producto_id', productoId);
 
+      // Si viene color/talla, borra esa variante; si no, la fila sin variante.
+      q = (color !== null && color !== '') ? q.eq('color', color) : q.is('color', null);
+      q = (talla !== null && talla !== '') ? q.eq('talla', talla) : q.is('talla', null);
+
+      const { error } = await q;
       if (error) throw error;
       res.status(200).json({ message: 'Producto eliminado con éxito' });
     } catch (e) {

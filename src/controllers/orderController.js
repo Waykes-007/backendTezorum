@@ -40,7 +40,7 @@ const orderController = {
         console.log('🛒 Leyendo carrito para usuario:', usuario_id);
         const { data, error: errCart } = await supabase
           .from('carrito')
-          .select('producto_id, cantidad, productos(id, nombre_producto, precio_normal, precio_oferta, tienda_id, tiendas(id, nombre_tienda, email))')
+          .select('producto_id, cantidad, color, talla, productos(id, nombre_producto, precio_normal, precio_oferta, tienda_id, tiendas(id, nombre_tienda, email))')
           .eq('usuario_id', usuario_id);
 
         if (errCart) {
@@ -334,6 +334,8 @@ const orderController = {
             cantidad:                  item.cantidad,
             precio_unitario_historico: precioUsado,
             subtotal_item:             precioUsado * parseInt(item.cantidad),
+            color:                     item.color ?? null,
+            talla:                     item.talla ?? null,
           };
         });
 
