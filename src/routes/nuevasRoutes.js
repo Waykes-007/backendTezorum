@@ -357,6 +357,9 @@ router.post('/ruleta/girar', async (req, res) => {
 const shippingController = require('../controllers/shippingController');
 router.post('/cotizar-envio', shippingController.cotizarEnvioCarrito);
 
+const variantesController = require('../controllers/variantesController');
+router.get('/productos/:id/variantes', variantesController.getVariantesProducto);
+
 // ══════════════════════════════════════════════════════════════
 // DASHBOARD VENDEDOR
 // subpedidos: tienda_id, estado, fecha_creacion ✅ (no tiene monto_vendedor)
