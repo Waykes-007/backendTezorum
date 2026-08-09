@@ -1046,7 +1046,7 @@ router.get('/promociones', async (req, res) => {
     // ── Más vendidos ─────────────────────────────────────────
     const { data: topData } = await supabase
       .from('productos')
-      .select('id, nombre_producto, imagenes, precio_normal, precio_oferta, stock_disponible')
+      .select('id, nombre_producto, imagenes, precio_normal, precio_oferta, stock_disponible, tienda_id')
       .eq('es_mas_vendido', true)
       .eq('estado_aprobacion', 'publicado')
       .eq('es_combo', false)
@@ -1059,12 +1059,14 @@ router.get('/promociones', async (req, res) => {
       precio_normal:    parseFloat(p.precio_normal) || 0,
       precio_promocion: parseFloat(p.precio_oferta ?? p.precio_normal) || 0,
       stock_disponible: p.stock_disponible ?? 0,
+      es_vendedor_oro:   (tiendaMap[p.tienda_id] || {}).es_vendedor_oro === true,
+      tienda_verificada: (tiendaMap[p.tienda_id] || {}).tienda_verificada === true,
     }))
 
     if (mas_vendidos.length === 0) {
       const { data: topRating } = await supabase
         .from('productos')
-        .select('id, nombre_producto, imagenes, precio_normal, precio_oferta, calificacion_promedio, stock_disponible')
+        .select('id, nombre_producto, imagenes, precio_normal, precio_oferta, calificacion_promedio, stock_disponible, tienda_id')
         .eq('estado_aprobacion', 'publicado')
         .eq('es_combo', false)
         .order('calificacion_promedio', { ascending: false })
@@ -1076,6 +1078,8 @@ router.get('/promociones', async (req, res) => {
         precio_normal:    parseFloat(p.precio_normal) || 0,
         precio_promocion: parseFloat(p.precio_oferta ?? p.precio_normal) || 0,
         stock_disponible: p.stock_disponible ?? 0,
+        es_vendedor_oro:   (tiendaMap[p.tienda_id] || {}).es_vendedor_oro === true,
+        tienda_verificada: (tiendaMap[p.tienda_id] || {}).tienda_verificada === true,
       }))
     }
 
@@ -1220,7 +1224,7 @@ router.get('/promociones', async (req, res) => {
     // ── Gancho < S/9.90 ──────────────────────────────────────
     const { data: ganchoData } = await supabase
       .from('productos')
-      .select('id, nombre_producto, imagenes, precio_normal, precio_oferta, stock_disponible')
+      .select('id, nombre_producto, imagenes, precio_normal, precio_oferta, stock_disponible, tienda_id')
       .eq('es_gancho_menor_9_90', true)
       .eq('estado_aprobacion', 'publicado')
       .eq('es_combo', false)
@@ -1233,6 +1237,8 @@ router.get('/promociones', async (req, res) => {
       precio_normal:    parseFloat(p.precio_normal) || 0,
       precio_promocion: parseFloat(p.precio_oferta ?? p.precio_normal) || 0,
       stock_disponible: p.stock_disponible ?? 0,
+      es_vendedor_oro:   (tiendaMap[p.tienda_id] || {}).es_vendedor_oro === true,
+      tienda_verificada: (tiendaMap[p.tienda_id] || {}).tienda_verificada === true,
     }))
 
     // ── Rotación de color: una foto por color para ciclar en la tarjeta ──
