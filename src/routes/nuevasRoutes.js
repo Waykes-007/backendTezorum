@@ -632,23 +632,31 @@ router.get('/categorias', async (req, res) => {
 
 router.put('/carrito/cantidad', async (req, res) => {
   try {
-    const { usuario_id, producto_id, cantidad } = req.body
+    const { usuario_id, producto_id, cantidad, color = null, talla = null } = req.body
     if (!usuario_id || !producto_id)
       return res.status(400).json({ error: 'Faltan campos' })
 
+    const col = (color !== null && color !== '') ? color : null
+    const tal = (talla !== null && talla !== '') ? talla : null
+    const conVariante = (q) => {
+      q = col !== null ? q.eq('color', col) : q.is('color', null)
+      q = tal !== null ? q.eq('talla', tal) : q.is('talla', null)
+      return q
+    }
+
     if (parseInt(cantidad) <= 0) {
-      await supabase.from('carrito')
+      await conVariante(supabase.from('carrito')
         .delete()
         .eq('usuario_id', usuario_id)
-        .eq('producto_id', producto_id)
+        .eq('producto_id', producto_id))
       return res.json({ message: 'Ítem eliminado' })
     }
 
-    const { error } = await supabase
+    const { error } = await conVariante(supabase
       .from('carrito')
       .update({ cantidad: parseInt(cantidad) })
       .eq('usuario_id', usuario_id)
-      .eq('producto_id', producto_id)
+      .eq('producto_id', producto_id))
 
     if (error) throw error
     res.json({ ok: true })
@@ -1884,7 +1892,7 @@ router.get('/carrito/:userId', async (req, res) => {
     const { data, error } = await supabase
       .from('carrito')
       .select(`
-        id, producto_id, cantidad,
+        id, producto_id, cantidad, color, talla,
         productos(id, nombre_producto, precio_normal, precio_oferta, precio_flash, imagenes, stock_disponible)
       `)
       .eq('usuario_id', req.params.userId)
@@ -1913,16 +1921,19 @@ router.post('/recompensas/:userId/reclamar', recompensasController.reclamarRecom
 
 router.post('/carrito/agregar', async (req, res) => {
   try {
-    const { usuario_id, producto_id, cantidad } = req.body
+    const { usuario_id, producto_id, cantidad, color = null, talla = null } = req.body
     if (!usuario_id || !producto_id)
       return res.status(400).json({ error: 'Faltan campos' })
 
-    const { data: existente } = await supabase
-      .from('carrito')
-      .select('id, cantidad')
-      .eq('usuario_id', usuario_id)
-      .eq('producto_id', producto_id)
-      .maybeSingle()
+    const col = (color !== null && color !== '') ? color : null
+    const tal = (talla !== null && talla !== '') ? talla : null
+
+    // Buscar la MISMA variante (producto + color + talla)
+    let sel = supabase.from('carrito').select('id, cantidad')
+      .eq('usuario_id', usuario_id).eq('producto_id', producto_id)
+    sel = col !== null ? sel.eq('color', col) : sel.is('color', null)
+    sel = tal !== null ? sel.eq('talla', tal) : sel.is('talla', null)
+    const { data: existente } = await sel.maybeSingle()
 
     if (existente) {
       const { error } = await supabase
@@ -1933,7 +1944,7 @@ router.post('/carrito/agregar', async (req, res) => {
     } else {
       const { error } = await supabase
         .from('carrito')
-        .insert([{ usuario_id, producto_id, cantidad: parseInt(cantidad) || 1 }])
+        .insert([{ usuario_id, producto_id, cantidad: parseInt(cantidad) || 1, color: col, talla: tal }])
       if (error) throw error
     }
 
@@ -1943,11 +1954,15 @@ router.post('/carrito/agregar', async (req, res) => {
 
 router.delete('/carrito/:userId/:productoId', async (req, res) => {
   try {
-    const { error } = await supabase
+    const { color = null, talla = null } = req.query
+    let q = supabase
       .from('carrito')
       .delete()
       .eq('usuario_id', req.params.userId)
       .eq('producto_id', req.params.productoId)
+    q = (color !== null && color !== '') ? q.eq('color', color) : q.is('color', null)
+    q = (talla !== null && talla !== '') ? q.eq('talla', talla) : q.is('talla', null)
+    const { error } = await q
     if (error) throw error
     res.json({ ok: true })
   } catch (err) { res.status(500).json({ error: err.message }) }
