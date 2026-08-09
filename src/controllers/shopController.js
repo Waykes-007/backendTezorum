@@ -175,8 +175,27 @@ const shopController = {
         precio_promocion: p.precio_oferta,
       }));
 
+      // 5. Combos (paquetes: es_combo = true)
+      const { data: combos } = await supabase
+        .from('productos')
+        .select('id, nombre_producto, precio_normal, precio_oferta, precio_flash, imagenes')
+        .eq('es_combo', true)
+        .eq('estado_aprobacion', 'publicado')
+        .gt('stock_disponible', 0);
+
+      const combosMapped = (combos ?? []).map(p => ({
+        tipo:             'combo',
+        id:               p.id,
+        producto_id:      p.id,
+        nombre:           p.nombre_producto,
+        imagen:           p.imagenes?.[0],
+        precio_normal:    p.precio_normal,
+        precio_promocion: p.precio_oferta ?? p.precio_flash ?? p.precio_normal,
+      }));
+
       const total = flash.length + liquidacionMapped.length +
-                    ganchoMapped.length + masVendidosMapped.length;
+                    ganchoMapped.length + masVendidosMapped.length +
+                    combosMapped.length;
 
       return res.json({
         total,
@@ -184,6 +203,8 @@ const shopController = {
         liquidacion:  liquidacionMapped,
         gancho:       ganchoMapped,
         mas_vendidos: masVendidosMapped,
+        combos:       combosMapped,
+        combos_subofertas: [],
       });
 
     } catch (e) {
