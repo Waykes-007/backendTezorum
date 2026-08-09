@@ -18,10 +18,28 @@ const shopController = {
 
       if (error) throw error;
 
+      // Imágenes por color para el ciclado en las tarjetas del home
+      // (solo productos de moda con fotos por color). Una foto por color.
+      const ids = (data ?? []).map(p => p.id);
+      const mapaRot = {};
+      if (ids.length > 0) {
+        const { data: imgsColor } = await supabase
+          .from('imagenes_color')
+          .select('producto_id, color, imagenes')
+          .in('producto_id', ids);
+        for (const r of (imgsColor ?? [])) {
+          const first = Array.isArray(r.imagenes) ? r.imagenes[0] : null;
+          if (!first) continue;
+          if (!mapaRot[r.producto_id]) mapaRot[r.producto_id] = [];
+          mapaRot[r.producto_id].push(first);
+        }
+      }
+
       const formateados = (data ?? []).map(p => ({
         ...p,
         num_resenas: p.resenas?.[0]?.count ?? 0,
         resenas: undefined,
+        imagenes_rotacion: mapaRot[p.id] ?? [],
       }));
 
       return res.status(200).json(formateados);
