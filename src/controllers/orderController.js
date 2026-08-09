@@ -343,13 +343,11 @@ const orderController = {
         if (errDetalle) throw errDetalle;
         console.log('✅ Detalles insertados');
 
-        // ── 11. Descontar stock ─────────────────────────────────────────────
-        for (const item of itemsCarrito) {
-          await supabase.rpc('decrementar_stock', {
-            p_producto_id: item.producto_id,
-            p_cantidad:    parseInt(item.cantidad),
-          });
-        }
+        // ── 11. Stock ───────────────────────────────────────────────────────
+        // El stock del producto YA se descontó de forma atómica arriba con
+        // descontar_stock (con verificación y reversa). No se vuelve a descontar
+        // aquí. El stock por variante lo baja el trigger tr_descontar_stock_variante
+        // al insertarse el detalle.
       }
 
       // ── 12. Quemar cupón ──────────────────────────────────────────────────
