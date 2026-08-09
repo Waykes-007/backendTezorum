@@ -1477,6 +1477,9 @@ router.get('/categorias', async (req, res) => {
 // ══════════════════════════════════════════════════════════════
 // GET /api/productos — con join de tiendas para tiendaNombre
 // ══════════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════
+// GET /api/productos — con join de tiendas para tiendaNombre
+// ══════════════════════════════════════════════════════════════
 router.get('/productos', async (req, res) => {
   try {
     const { limit = 20, offset = 0, estado = 'publicado',
@@ -1593,6 +1596,42 @@ router.get('/productos', async (req, res) => {
         (ventasPorProducto[v.producto_id] || 0) + (parseInt(v.cantidad) || 0)
     }
 
+    // ── Imágenes por color → UNA foto por color para rotar en la tarjeta ──
+    // La tarjeta del home cicla estas fotos con fade (moda con 2+ colores).
+    // Tomamos la primera imagen de cada color; orden estable por nombre de
+    // color (mismo criterio que getVariantesProducto).
+    const primeraImg = (imgs) => {
+      if (Array.isArray(imgs)) {
+        for (const u of imgs) {
+          const s = (u ?? '').toString().trim()
+          if (s) return s
+        }
+        return null
+      }
+      if (typeof imgs === 'string' && imgs.trim()) {
+        const limpio  = imgs.replace(/[\[\]"]/g, '')
+        const primera = limpio.split(',')[0]?.trim()
+        return primera || null
+      }
+      return null
+    }
+
+    const { data: coloresImg } = await supabase
+      .from('imagenes_color')
+      .select('producto_id, color, imagenes')
+      .in('producto_id', ids)
+
+    const rotacionPorProducto = {}
+    for (const row of (coloresImg ?? [])) {
+      const foto = primeraImg(row.imagenes)
+      if (!foto) continue
+      if (!rotacionPorProducto[row.producto_id]) rotacionPorProducto[row.producto_id] = []
+      rotacionPorProducto[row.producto_id].push({ color: row.color ?? '', foto })
+    }
+    for (const pid of Object.keys(rotacionPorProducto)) {
+      rotacionPorProducto[pid].sort((a, b) => a.color.localeCompare(b.color))
+    }
+
     const resultado = productos.map(p => {
       const oferta = ofertasPorProducto[p.id]
       return {
@@ -1604,6 +1643,7 @@ router.get('/productos', async (req, res) => {
         valor_limite:    oferta ? oferta.valor_limite : null,
         usos_actuales:   oferta ? oferta.usos_actuales : null,
         unidades_vendidas: ventasPorProducto[p.id] || 0,
+        imagenes_rotacion: (rotacionPorProducto[p.id] ?? []).map(x => x.foto),
       }
     })
 
