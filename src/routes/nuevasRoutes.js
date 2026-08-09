@@ -1235,6 +1235,56 @@ router.get('/promociones', async (req, res) => {
       stock_disponible: p.stock_disponible ?? 0,
     }))
 
+    // ── Rotación de color: una foto por color para ciclar en la tarjeta ──
+    // Igual que en GET /productos. Se aplica a TODAS las listas de una vez
+    // (incluidas las sub-ofertas anidadas) justo antes de responder.
+    const primeraImg = (imgs) => {
+      if (Array.isArray(imgs)) {
+        for (const u of imgs) {
+          const s = (u ?? '').toString().trim()
+          if (s) return s
+        }
+        return null
+      }
+      if (typeof imgs === 'string' && imgs.trim()) {
+        const limpio  = imgs.replace(/[\[\]"]/g, '')
+        const primera = limpio.split(',')[0]?.trim()
+        return primera || null
+      }
+      return null
+    }
+
+    const todasLasTarjetas = [
+      ...flash, ...con_oferta, ...mas_vendidos, ...liquidacion, ...combos, ...gancho,
+      ...liquidacion_subofertas.flatMap(s => s.productos),
+      ...combos_subofertas.flatMap(s => s.productos),
+    ]
+    const idsRot = [...new Set(todasLasTarjetas.map(t => t.producto_id).filter(Boolean))]
+
+    const rotacionPorProducto = {}
+    if (idsRot.length > 0) {
+      const { data: coloresImg } = await supabase
+        .from('imagenes_color')
+        .select('producto_id, color, imagenes')
+        .in('producto_id', idsRot)
+
+      const tmp = {}
+      for (const row of (coloresImg ?? [])) {
+        const foto = primeraImg(row.imagenes)
+        if (!foto) continue
+        if (!tmp[row.producto_id]) tmp[row.producto_id] = []
+        tmp[row.producto_id].push({ color: row.color ?? '', foto })
+      }
+      for (const pid of Object.keys(tmp)) {
+        tmp[pid].sort((a, b) => a.color.localeCompare(b.color))
+        rotacionPorProducto[pid] = tmp[pid].map(x => x.foto)
+      }
+    }
+
+    for (const t of todasLasTarjetas) {
+      t.imagenes_rotacion = rotacionPorProducto[t.producto_id] ?? []
+    }
+
     res.json({
       flash,
       con_oferta,
