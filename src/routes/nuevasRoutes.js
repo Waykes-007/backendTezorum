@@ -330,6 +330,7 @@ router.post('/ruleta/girar', async (req, res) => {
 
     const idx    = Math.floor(Math.random() * PREMIOS_RULETA.length)
     const premio = PREMIOS_RULETA[idx]
+    const VIGENCIA_DIAS = 7
 
     await supabase.from('usuarios')
       .update({ ultima_ruleta: new Date().toISOString() }).eq('id', usuario_id)
@@ -343,14 +344,44 @@ router.post('/ruleta/girar', async (req, res) => {
       fecha_reclamado: new Date().toISOString().split('T')[0],
     }])
 
+    // Saldo → recompensa con vencimiento propio (7 días). Cada giro es una
+    // fila en recompensas_saldo, así vence por separado del resto.
     if (premio.tipo === 'saldo' && premio.valor > 0) {
-      await walletService.modificarSaldo(
-        usuario_id, premio.valor, 'ingreso',
-        `Premio Ruleta Waykes — ${premio.descripcion}`
+      await walletService.acreditarSaldo(
+        usuario_id, premio.valor,
+        `Premio Ruleta Waykes — ${premio.descripcion}`,
+        { vigenciaDias: VIGENCIA_DIAS, origen: 'ruleta' }
       )
     }
 
-    res.json({ premio, indice: idx })
+    // Cupón → cupón personal real con fecha_exp a 7 días. validarCupon ya
+    // rechaza los vencidos, así que el vencimiento sale gratis.
+    let cuponCreado = null
+    if (premio.tipo === 'cupon' && premio.valor > 0) {
+      const sufijo = Math.random().toString(36).slice(2, 7).toUpperCase()
+      const vence  = new Date(Date.now() + VIGENCIA_DIAS * 24 * 60 * 60 * 1000)
+      const { data: cup } = await supabase.from('cupones').insert([{
+        codigo:                 `RULETA-${sufijo}`,
+        descripcion:            `Premio Ruleta — Cupón de S/ ${Number(premio.valor).toFixed(2)}`,
+        tipo_descuento:         'monto_fijo',
+        valor:                  premio.valor,
+        porcentaje:             null,
+        descuento_maximo:       null,
+        compra_minima:          49.90,
+        compra_maxima:          null,
+        categoria_id:           null,
+        fecha_exp:              vence.toISOString(),
+        uso_maximo:             1,
+        usos_actuales:          0,
+        uso_maximo_por_usuario: 1,
+        usuario_id,
+        activo:                 true,
+        origen:                 'ruleta',
+      }]).select('codigo').single()
+      cuponCreado = cup?.codigo ?? null
+    }
+
+    res.json({ premio, indice: idx, cupon: cuponCreado, vigencia_dias: VIGENCIA_DIAS })
   } catch (err) { res.status(500).json({ error: err.message }) }
 })
 
@@ -682,6 +713,9 @@ router.get('/usuarios/perfil/:id', async (req, res) => {
       .eq('id', req.params.id)
       .single()
     if (error) throw error
+    // El saldo real es la suma de recompensas vigentes (no el campo fijo),
+    // así refleja los vencimientos sin depender de un número guardado.
+    data.saldo_disponible = await walletService.saldoVigente(req.params.id)
     res.json(data)
   } catch (err) { res.status(500).json({ error: err.message }) }
 })
