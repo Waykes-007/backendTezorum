@@ -139,15 +139,15 @@ const walletService = {
         .eq('usuario_id', userId)
         .eq('usado', false)
         .gt('vence_en', new Date().toISOString())
-        .order('vence_en', { ascending: true })
-        .limit(1),
+        .order('vence_en', { ascending: true }),
     ]);
 
-    const proxima = (prox.data ?? [])[0] ?? null;
+    const vivas = prox.data ?? [];
     return {
       saldo,
       historial: hist.data ?? [],
-      proximo_vencimiento: proxima ? proxima.vence_en : null,
+      proximo_vencimiento: vivas[0]?.vence_en ?? null,
+      por_vencer: vivas.map(r => ({ monto: r.monto, vence_en: r.vence_en })),
     };
   },
 };
