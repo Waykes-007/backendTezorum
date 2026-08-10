@@ -1394,20 +1394,138 @@ router.delete('/favoritos/:userId/:productoId', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }) }
 })
 
+// ══════════════════════════════════════════════════════════════
+// GET /api/productos/buscar?q=texto&limit=20&offset=0
+// Búsqueda real: nombre + descripción, con los MISMOS datos que la
+// tarjeta usa (stock, oro, verificada, ventas, oferta flash, rotación
+// de color). Orden por bloques de stock (igual que el home) + relevancia
+// (los que empiezan con el texto van primero). Paginada para scroll infinito.
+// Acepta ?q= o ?nombre= (compatibilidad).
+// ══════════════════════════════════════════════════════════════
 router.get('/productos/buscar', async (req, res) => {
   try {
-    const { nombre } = req.query
-    if (!nombre) return res.status(400).json({ error: 'Falta nombre' })
-    const { data, error } = await supabase
+    const termino = (req.query.q ?? req.query.nombre ?? '').toString().trim()
+    if (!termino) return res.status(400).json({ error: 'Falta el texto de búsqueda' })
+
+    const limit = Math.min(parseInt(req.query.limit) || 20, 40)
+    const offset = parseInt(req.query.offset) || 0
+
+    // Coincidencia en nombre O descripción (case-insensitive)
+    const patron = `%${termino}%`
+    const { data: matches, error } = await supabase
       .from('productos')
-      .select('id, nombre_producto, imagenes, precio_normal, precio_oferta')
-      .ilike('nombre_producto', `%${nombre}%`)
+      .select(`
+        id, nombre_producto, descripcion, precio_normal, precio_oferta,
+        precio_flash, imagenes, calificacion_promedio, stock_disponible,
+        estado_aprobacion, tienda_id, categoria_id, es_oferta_flash, es_mas_vendido,
+        tiendas(id, nombre_tienda, tienda_verificada, es_vendedor_oro)`)
+      .or(`nombre_producto.ilike.${patron},descripcion.ilike.${patron}`)
       .eq('estado_aprobacion', 'publicado')
       .eq('es_combo', false)
-      .limit(5)
+      .limit(100)
     if (error) throw error
-    res.json(data)
-  } catch (err) { res.status(500).json({ error: err.message }) }
+
+    // Orden: 1) bloques de stock (oro+stock → clásico+stock → oro sin →
+    // clásico sin), 2) relevancia (empieza con el texto), 3) más vendidos.
+    const termLower = termino.toLowerCase()
+    const rango = (p) => {
+      const oro   = p.tiendas?.es_vendedor_oro === true
+      const stock = (p.stock_disponible ?? 0) > 0
+      if (oro && stock)  return 0
+      if (!oro && stock) return 1
+      if (oro && !stock) return 2
+      return 3
+    }
+    const empiezaCon = (p) =>
+      (p.nombre_producto ?? '').toLowerCase().startsWith(termLower) ? 0 : 1
+
+    const ordenados = (matches ?? []).sort((a, b) => {
+      const r = rango(a) - rango(b);            if (r !== 0) return r
+      const e = empiezaCon(a) - empiezaCon(b);  if (e !== 0) return e
+      return (b.es_mas_vendido === true ? 1 : 0) - (a.es_mas_vendido === true ? 1 : 0)
+    })
+
+    // Cortar la página pedida
+    const pagina = ordenados.slice(offset, offset + limit)
+    if (pagina.length === 0) return res.json([])
+
+    const ids = pagina.map(p => p.id)
+
+    // Enriquecer SOLO la página: oferta flash vigente
+    const { data: ofertas } = await supabase
+      .from('ofertas_flash')
+      .select('id, producto_id, tipo_limite, valor_limite, usos_actuales, precio_oferta, activa')
+      .eq('activa', true)
+      .in('producto_id', ids)
+
+    const ofertasPorProducto = {}
+    for (const o of (ofertas ?? [])) {
+      let vigente = true
+      if (o.tipo_limite === 'tiempo')   vigente = new Date(o.valor_limite) > new Date()
+      if (o.tipo_limite === 'cantidad') vigente = o.usos_actuales < (parseInt(o.valor_limite) || 0)
+      if (vigente) ofertasPorProducto[o.producto_id] = o
+    }
+
+    // Ventas entregadas
+    const { data: ventas } = await supabase
+      .from('detalle_pedidos')
+      .select('producto_id, cantidad, pedidos!inner(estado_pedido)')
+      .in('producto_id', ids)
+      .eq('pedidos.estado_pedido', 'entregado')
+
+    const ventasPorProducto = {}
+    for (const v of (ventas ?? [])) {
+      ventasPorProducto[v.producto_id] =
+        (ventasPorProducto[v.producto_id] || 0) + (parseInt(v.cantidad) || 0)
+    }
+
+    // Fotos por color → una por color para rotar en la tarjeta
+    const primeraImg = (imgs) => {
+      if (Array.isArray(imgs)) {
+        for (const u of imgs) { const s = (u ?? '').toString().trim(); if (s) return s }
+        return null
+      }
+      if (typeof imgs === 'string' && imgs.trim()) {
+        const limpio = imgs.replace(/[\[\]"]/g, '')
+        return (limpio.split(',')[0]?.trim()) || null
+      }
+      return null
+    }
+    const { data: coloresImg } = await supabase
+      .from('imagenes_color')
+      .select('producto_id, color, imagenes')
+      .in('producto_id', ids)
+
+    const rotacionPorProducto = {}
+    for (const row of (coloresImg ?? [])) {
+      const foto = primeraImg(row.imagenes)
+      if (!foto) continue
+      if (!rotacionPorProducto[row.producto_id]) rotacionPorProducto[row.producto_id] = []
+      rotacionPorProducto[row.producto_id].push({ color: row.color ?? '', foto })
+    }
+    for (const pid of Object.keys(rotacionPorProducto)) {
+      rotacionPorProducto[pid].sort((a, b) => a.color.localeCompare(b.color))
+    }
+
+    const resultado = pagina.map(p => {
+      const oferta = ofertasPorProducto[p.id]
+      return {
+        ...p,
+        es_oferta_flash: !!oferta,
+        precio_flash:    oferta ? parseFloat(oferta.precio_oferta) : null,
+        oferta_flash_id: oferta ? oferta.id : null,
+        tipo_limite:     oferta ? oferta.tipo_limite : null,
+        valor_limite:    oferta ? oferta.valor_limite : null,
+        usos_actuales:   oferta ? oferta.usos_actuales : null,
+        unidades_vendidas: ventasPorProducto[p.id] || 0,
+        imagenes_rotacion: (rotacionPorProducto[p.id] ?? []).map(x => x.foto),
+      }
+    })
+
+    res.json(resultado)
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
 })
 
 // ══════════════════════════════════════════════════════════════
