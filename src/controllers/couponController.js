@@ -3,6 +3,42 @@ const supabase = require('../config/supabase');
 const PISO_COMPRA = 49.90;
 const r2 = (n) => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
 
+// ── Fecha de registro del usuario (referencia del snapshot) ──
+// Fuente por defecto: auth.users.created_at (siempre existe en Supabase
+// Auth y requiere service role, que este controlador ya usa).
+//
+// ALTERNATIVA — si prefieres tu tabla public.usuarios, reemplaza el
+// cuerpo del try por:
+//   const { data } = await supabase
+//     .from('usuarios').select('created_at').eq('id', userId).single();
+//   return data?.created_at ? new Date(data.created_at) : null;
+async function fechaRegistroUsuario(userId) {
+  if (!userId) return null;
+  try {
+    const { data, error } = await supabase.auth.admin.getUserById(userId);
+    if (error || !data?.user?.created_at) return null;
+    return new Date(data.user.created_at);
+  } catch (_) {
+    return null;
+  }
+}
+
+// Normaliza el alcance aunque la fila no esté "backfilleada":
+// si tiene usuario_id → personal; si no → global.
+function alcanceDe(cupon) {
+  return cupon.alcance ?? (cupon.usuario_id ? 'personal' : 'global');
+}
+
+// ¿El cupón le corresponde a este usuario SEGÚN SU ALCANCE?
+// - global      → todos
+// - personal    → se resuelve por usuario_id en cada método
+// - registrados → snapshot: cuentas creadas antes de crear el cupón
+function eligiblePorAlcance(cupon, fechaRegistro) {
+  if (alcanceDe(cupon) !== 'registrados') return true;
+  if (!cupon.fecha_creacion || !fechaRegistro) return false; // no confirmable → fuera
+  return new Date(fechaRegistro) <= new Date(cupon.fecha_creacion);
+}
+
 const couponController = {
 
   // ── Valida un cupón CONTRA EL CARRITO y devuelve el monto exacto ──
@@ -25,8 +61,22 @@ const couponController = {
       if (cupon.activo === false) {
         return res.status(400).json({ message: 'Este cupón no está disponible' });
       }
+
+      // ── Quién puede usarlo (alcance) ──
+      // Personal: solo el dueño.
       if (cupon.usuario_id && cupon.usuario_id !== usuario_id) {
         return res.status(403).json({ message: 'Este cupón es personal y no te pertenece' });
+      }
+      // Solo registrados: cuentas creadas antes de lanzar el cupón.
+      // Se comprueba también aquí (no solo en el listado) para que un
+      // usuario nuevo no lo pueda usar escribiéndolo a mano.
+      if (alcanceDe(cupon) === 'registrados') {
+        const fReg = await fechaRegistroUsuario(usuario_id);
+        if (!eligiblePorAlcance(cupon, fReg)) {
+          return res.status(403).json({
+            message: 'Este cupón es solo para usuarios registrados antes de su lanzamiento'
+          });
+        }
       }
 
       const ahora = new Date();
@@ -113,8 +163,9 @@ const couponController = {
   },
 
   // ── Lista cupones DISPONIBLES para el usuario ──
-  // Excluye: inactivos, expirados, no vigentes, agotados (global) y
-  // los que el usuario YA agotó según su límite por usuario.
+  // Excluye: inactivos, expirados, no vigentes, agotados (global),
+  // los que el usuario YA agotó según su límite por usuario, y los
+  // 'registrados' cuando la cuenta se creó después de lanzar el cupón.
   async listarCuponesDisponibles(req, res) {
     const { userId } = req.query;
     try {
@@ -136,9 +187,14 @@ const couponController = {
         usosPorCupon[p.cupon_id] = (usosPorCupon[p.cupon_id] ?? 0) + 1;
       });
 
+      // Solo resolvemos la fecha de registro si hay algún cupón 'registrados'
+      const hayRegistrados = (cupones ?? []).some(c => alcanceDe(c) === 'registrados');
+      const fReg = hayRegistrados ? await fechaRegistroUsuario(userId) : null;
+
       const ahora = new Date();
       const disponibles = (cupones ?? []).filter(c => {
         if (c.activo === false) return false;
+        if (!eligiblePorAlcance(c, fReg)) return false;
         const noHaExpirado = !c.fecha_exp    || new Date(c.fecha_exp)    > ahora;
         const yaInicio     = !c.fecha_inicio || new Date(c.fecha_inicio) <= ahora;
         const tieneStock   = c.usos_actuales < c.uso_maximo;
