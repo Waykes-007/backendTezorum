@@ -193,17 +193,39 @@ const shopController = {
         precio_promocion: p.precio_oferta ?? p.precio_flash ?? p.precio_normal,
       }));
 
+      // 6. Últimas unidades (stock bajo: 1 a 4) — misma regla que la etiqueta
+      //    del catálogo. Automático por stock, sin etiqueta manual.
+      const { data: ultimas } = await supabase
+        .from('productos')
+        .select('id, nombre_producto, precio_normal, precio_oferta, imagenes, stock_disponible')
+        .eq('estado_aprobacion', 'publicado')
+        .eq('es_combo', false)
+        .gte('stock_disponible', 1)
+        .lte('stock_disponible', 4);
+
+      const ultimasMapped = (ultimas ?? []).map(p => ({
+        tipo:             'ultimas_unidades',
+        id:               p.id,
+        producto_id:      p.id,
+        nombre:           p.nombre_producto,
+        imagen:           p.imagenes?.[0],
+        precio_normal:    p.precio_normal,
+        precio_promocion: p.precio_oferta ?? p.precio_normal,
+        stock_disponible: p.stock_disponible,
+      }));
+
       const total = flash.length + liquidacionMapped.length +
                     ganchoMapped.length + masVendidosMapped.length +
-                    combosMapped.length;
+                    combosMapped.length + ultimasMapped.length;
 
       return res.json({
         total,
         flash,
-        liquidacion:  liquidacionMapped,
-        gancho:       ganchoMapped,
-        mas_vendidos: masVendidosMapped,
-        combos:       combosMapped,
+        liquidacion:      liquidacionMapped,
+        gancho:           ganchoMapped,
+        mas_vendidos:     masVendidosMapped,
+        combos:           combosMapped,
+        ultimas_unidades: ultimasMapped,
         combos_subofertas: [],
       });
 

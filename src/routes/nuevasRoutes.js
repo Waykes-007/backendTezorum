@@ -255,6 +255,74 @@ router.delete('/tiendas/:tiendaId/seguir/:userId', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }) }
 })
 
+// ── Directorio de tiendas: 3 secciones (Oro verificadas, Nuevas, Mejor valoradas) ──
+// Solo datos públicos de la tienda. El rating por tienda se calcula al vuelo
+// promediando las reseñas de sus productos (no hay rating de tienda guardado).
+router.get('/tiendas/directorio', async (req, res) => {
+  try {
+    const MIN_RESENAS = 1;      // mínimo para entrar a "Mejor valoradas"
+    const DIAS_NUEVA  = 30;     // antigüedad para "Nuevas"
+
+    // 1. Todas las tiendas (solo campos públicos)
+    const { data: tiendas, error } = await supabase
+      .from('tiendas')
+      .select('id, nombre_tienda, logo_url, portada_url, tienda_verificada, es_vendedor_oro, fecha_inicio, likes');
+    if (error) throw error;
+
+    // 2. Productos publicados → mapa producto→tienda
+    const { data: prods } = await supabase
+      .from('productos')
+      .select('id, tienda_id')
+      .eq('estado_aprobacion', 'publicado')
+      .eq('es_combo', false);
+    const prodTienda = {};
+    const prodIds = [];
+    for (const p of (prods ?? [])) { prodTienda[p.id] = p.tienda_id; prodIds.push(p.id); }
+
+    // 3. Reseñas de esos productos → rating y conteo por tienda
+    const ratingPorTienda = {}; // tienda_id -> { sum, count }
+    if (prodIds.length > 0) {
+      const { data: resenas } = await supabase
+        .from('resenas')
+        .select('producto_id, calificacion')
+        .in('producto_id', prodIds);
+      for (const r of (resenas ?? [])) {
+        const tid = prodTienda[r.producto_id];
+        if (!tid) continue;
+        const cal = parseFloat(r.calificacion) || 0;
+        if (!ratingPorTienda[tid]) ratingPorTienda[tid] = { sum: 0, count: 0 };
+        ratingPorTienda[tid].sum += cal;
+        ratingPorTienda[tid].count += 1;
+      }
+    }
+
+    // 4. Enriquecer cada tienda con su rating/num_resenas
+    const conRating = (tiendas ?? []).map(t => {
+      const r = ratingPorTienda[t.id];
+      return {
+        ...t,
+        rating:      r ? parseFloat((r.sum / r.count).toFixed(1)) : 0,
+        num_resenas: r ? r.count : 0,
+      };
+    });
+
+    // 5. Armar las 3 secciones
+    const limiteNuevas = new Date(Date.now() - DIAS_NUEVA * 24 * 60 * 60 * 1000).toISOString();
+
+    const oro_verificadas = conRating.filter(t => t.es_vendedor_oro && t.tienda_verificada);
+    const nuevas = conRating.filter(t => t.fecha_inicio && t.fecha_inicio >= limiteNuevas);
+    const mejor_valoradas = conRating
+      .filter(t => t.num_resenas >= MIN_RESENAS)
+      .sort((a, b) => b.rating - a.rating || b.num_resenas - a.num_resenas)
+      .slice(0, 20);
+
+    res.json({ oro_verificadas, nuevas, mejor_valoradas });
+  } catch (err) {
+    console.error('Error /tiendas/directorio:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+})
+
 // ══════════════════════════════════════════════════════════════
 // LOGROS
 // ══════════════════════════════════════════════════════════════
