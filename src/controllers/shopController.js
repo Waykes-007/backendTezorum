@@ -84,6 +84,7 @@ const shopController = {
   // ── Todas las promociones activas agrupadas por tipo ──
   async getPromociones(req, res) {
     try {
+      console.log('>>> promociones v2 con ultimas_unidades');
       const ahora = new Date().toISOString();
 
       // 1. Ofertas flash vigentes
