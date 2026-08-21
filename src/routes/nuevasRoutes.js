@@ -1185,6 +1185,24 @@ router.get('/promociones', async (req, res) => {
       }))
     }
 
+    // Unidades vendidas REALES (pedidos entregados) para "Más vendidos"
+    let idsTop = mas_vendidos.map(p => p.producto_id).filter(Boolean)
+    if (idsTop.length > 0) {
+      const { data: ventasTop } = await supabase
+        .from('detalle_pedidos')
+        .select('producto_id, cantidad, pedidos!inner(estado_pedido)')
+        .in('producto_id', idsTop)
+        .eq('pedidos.estado_pedido', 'entregado')
+      const ventasTopMap = {}
+      for (const v of (ventasTop ?? [])) {
+        ventasTopMap[v.producto_id] =
+          (ventasTopMap[v.producto_id] || 0) + (parseInt(v.cantidad) || 0)
+      }
+      mas_vendidos = mas_vendidos
+        .map(p => ({ ...p, unidades_vendidas: ventasTopMap[p.producto_id] || 0 }))
+        .sort((a, b) => b.unidades_vendidas - a.unidades_vendidas)
+    }
+
     // ── Liquidación con SUB-OFERTAS ──────────────────────────
     // Los tramos y nombres salen de categorias_oferta (BD), no de
     // codigo: se pueden renombrar o mover sin tocar la app.
