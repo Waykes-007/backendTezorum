@@ -1393,6 +1393,34 @@ router.get('/promociones', async (req, res) => {
       t.imagenes_rotacion = rotacionPorProducto[t.producto_id] ?? []
     }
 
+    // ── Últimas unidades: stock bajo (1 a 4) — misma regla que la etiqueta
+    //    del catálogo. Se deriva de los productos ya traídos (ofertasData),
+    //    con su tienda para Oro/verificada e imagen. Automático por stock.
+    const ultimas_unidades = (ofertasData ?? [])
+      .filter(p => {
+        const s = parseInt(p.stock_disponible) || 0
+        return s >= 1 && s <= 4
+      })
+      .map(p => {
+        const t = tiendaMap[p.tienda_id] || {}
+        const normal = parseFloat(p.precio_normal) || 0
+        const oferta = parseFloat(p.precio_oferta) || 0
+        return {
+          producto_id:       p.id,
+          nombre:            p.nombre_producto,
+          imagen:            Array.isArray(p.imagenes) && p.imagenes.length > 0 ? p.imagenes[0] : null,
+          precio_normal:     normal,
+          precio_promocion:  (oferta > 0 && oferta < normal) ? oferta : normal,
+          precio_oferta:     (oferta > 0 && oferta < normal) ? oferta : null,
+          unidades_vendidas: 0,
+          calificacion_promedio: parseFloat(p.calificacion_promedio) || 0,
+          stock_disponible:  parseInt(p.stock_disponible) || 0,
+          es_vendedor_oro:   t.es_vendedor_oro === true,
+          tienda_verificada: t.tienda_verificada === true,
+          imagenes_rotacion: [],
+        }
+      })
+
     res.json({
       flash,
       con_oferta,
@@ -1402,8 +1430,10 @@ router.get('/promociones', async (req, res) => {
       combos,
       combos_subofertas,
       gancho,
+      ultimas_unidades,
       total: flash.length + con_oferta.length + mas_vendidos.length +
-             liquidacion.length + combos.length + gancho.length,
+             liquidacion.length + combos.length + gancho.length +
+             ultimas_unidades.length,
     })
   } catch (err) {
     res.status(500).json({ error: err.message })
